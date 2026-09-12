@@ -509,7 +509,27 @@ svg.addEventListener("wheel", ev => {
   renderCanvas(); renderTop();
 }, { passive: false });
 
-$("zoom-reset").onclick = () => { state.zoom = 1; state.pan = {x:0,y:0}; renderCanvas(); renderTop(); };
+$("zoom-reset").onclick = () => fitView();
+
+function fitView() {
+  if (!state.graph || !state.graph.components || !state.graph.components.length) return;
+  const CW = 260, CH = 120, pad = 70;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const c of state.graph.components) {
+    minX = Math.min(minX, c.x); minY = Math.min(minY, c.y);
+    maxX = Math.max(maxX, c.x + CW); maxY = Math.max(maxY, c.y + CH);
+  }
+  const r = svg.getBoundingClientRect();
+  if (r.width < 10 || r.height < 10) return;
+  const zw = (r.width - pad * 2) / (maxX - minX || 1);
+  const zh = (r.height - pad * 2) / (maxY - minY || 1);
+  state.zoom = Math.max(0.3, Math.min(zw, zh, 1.5));
+  state.pan = {
+    x: (r.width - (maxX - minX) * state.zoom) / 2 - minX * state.zoom,
+    y: (r.height - (maxY - minY) * state.zoom) / 2 - minY * state.zoom
+  };
+  renderCanvas(); renderTop();
+}
 
 document.querySelectorAll(".lens").forEach(b => b.onclick = () => {
   document.querySelectorAll(".lens").forEach(x => x.classList.remove("active"));
@@ -545,6 +565,7 @@ $("gen-close").onclick = () => $("gen-modal").classList.remove("open");
   state.errors = v.errors || [];
   state.lastPass = v.pass;
   renderAll();
+  fitView();
 })();
 </script>
 </body>
