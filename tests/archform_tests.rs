@@ -1,4 +1,4 @@
-use archform::{generate, model, validate, web};
+use archform::{generate, model, simulate, validate, web};
 
 const SAMPLE: &str = include_str!("../examples/openmind.arch.yaml");
 
@@ -252,4 +252,95 @@ fn sample_openmind_all_green() {
     assert!(all_ok, "sample must be all green");
     assert_eq!(fail, 0);
     assert!(pass > 0);
+}
+
+#[test]
+fn simulate_all_green() {
+    let a = parse(SAMPLE);
+    let r = simulate::simulate(&a);
+    for s in &r.steps {
+        eprintln!("[{}] {} {:?}", s.step, s.element, s.message);
+    }
+    assert!(r.ok, "sample sim must be ok");
+    assert_eq!(r.steps[0].step, "enter");
+    assert_eq!(r.steps[0].element, "gateway.api");
+    assert_eq!(r.steps.last().unwrap().step, "done");
+    assert!(!r.steps.iter().any(|s| s.step == "stall"));
+    assert_eq!(r.hops, a.edges.len(), "every edge hopped exactly once");
+}
+
+#[test]
+fn simulate_stall_on_broken() {
+    let y = SAMPLE.replacen(
+        "from: gateway.api\n    to: mind-engine.invoke",
+        "from: gateway.nope\n    to: mind-engine.invoke",
+        1,
+    );
+    let a = parse(&y);
+    let r = simulate::simulate(&a);
+    assert!(!r.ok);
+    let stall = r.steps.iter().find(|s| s.step == "stall").expect("stall step");
+    assert_eq!(stall.element, "e1");
+    assert!(stall.message.as_deref().unwrap_or("").contains("e1"));
+    assert_eq!(r.steps.last().unwrap().step, "stall", "sim terminates on stall");
+}
+
+#[test]
+fn simulate_no_entry() {
+    let a = parse("version: 1\ncomponents: []\nedges: []\n");
+    let r = simulate::simulate(&a);
+    assert!(!r.ok);
+    assert_eq!(r.steps.len(), 1);
+    assert_eq!(r.steps[0].step, "stall");
+    assert_eq!(r.steps[0].element, "-");
+    assert!(r.steps[0].message.as_deref().unwrap_or("").contains("入口"));
+}
+
+#[test]
+fn simulate_cycle_safe() {
+    let y = r#"version: 1
+policies:
+  auth-jwt: { ptype: auth, scheme: jwt-bearer }
+  otel: { ptype: trace }
+defaults:
+  edges: [auth-jwt, otel]
+  nodes: {}
+components:
+  - id: ga
+    kind: gateway
+    x: 0
+    y: 0
+    annotations: {}
+    ports:
+      - id: api
+        ptype: sync-call
+        role: server
+  - id: b
+    kind: service
+    x: 300
+    y: 0
+    annotations: {}
+    ports:
+      - id: invoke
+        ptype: sync-call
+        role: server
+edges:
+  - id: e1
+    from: ga.api
+    to: b.invoke
+    etype: sync-call
+    spec: "openapi:paths=/x"
+    annotations: []
+  - id: e2
+    from: b.invoke
+    to: ga.api
+    etype: sync-call
+    spec: "openapi:paths=/y"
+    annotations: []
+"#;
+    let a = parse(y);
+    let r = simulate::simulate(&a);
+    assert!(!r.steps.is_empty());
+    assert!(r.hops <= 2, "hops bounded, got {}", r.hops);
+    assert!(r.steps.len() <= 16, "steps bounded (no infinite loop): {}", r.steps.len());
 }

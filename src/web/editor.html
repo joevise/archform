@@ -60,6 +60,13 @@ button.active { background: #2563eb; border-color: #2563eb; }
 @keyframes flash { 0%,100% { filter: none; } 50% { filter: drop-shadow(0 0 14px #facc15); } }
 .flash { animation: flash .5s ease-in-out 3; }
 #ghost { position: fixed; pointer-events: none; background: #2563eb; color: #fff; padding: 6px 10px; border-radius: 8px; font-size: 12px; display: none; z-index: 99; }
+button:disabled { opacity: .5; cursor: default; }
+.edge.sim-ok { stroke: #f59e0b !important; stroke-width: 4.5 !important; }
+.edge.sim-bad { stroke: #ef4444 !important; stroke-width: 5 !important; }
+#verdict .sim-ok-line { color: #22c55e; padding: 2px 0; }
+#verdict .sim-err-line { color: #f87171; padding: 2px 0; }
+#toast { position: fixed; left: 50%; bottom: 180px; transform: translateX(-50%); background: #1f2937; border: 1px solid #ef4444; color: #fca5a5; padding: 8px 16px; border-radius: 8px; font-size: 13px; display: none; z-index: 60; }
+#toast.show { display: block; }
 </style>
 </head>
 <body>
@@ -70,6 +77,7 @@ button.active { background: #2563eb; border-color: #2563eb; }
     <span id="fname">archform.yaml</span>
     <span id="score"></span>
     <span class="spacer"></span>
+    <button id="btn-sim">仿真 ▶</button>
     <button id="btn-gen">生成⚡</button>
     <button id="btn-yaml">YAML</button>
   </div>
@@ -96,6 +104,7 @@ button.active { background: #2563eb; border-color: #2563eb; }
 </div>
 <div id="gen-modal"><div id="gen-box"><div style="display:flex;align-items:center"><b>生成结果</b><span class="spacer"></span><button id="gen-close">关闭</button></div><div id="gen-list"></div></div></div>
 <div id="ghost"></div>
+<div id="toast"></div>
 <script>
 "use strict";
 const NS = "http://www.w3.org/2000/svg";
@@ -218,6 +227,24 @@ function portPos(c, portId) {
   const col = Math.floor(idx / 2);
   return { x: c.x + (left ? 0 : NODE_W), y: c.y + 44 + col * 24 };
 }
+function edgeGeom(e) {
+  const [fc, fp] = e.from.split(".");
+  const [tc, tp] = e.to.split(".");
+  const c1 = comp(fc), c2 = comp(tc);
+  if (!c1 || !c2) return null;
+  const p1 = portPos(c1, fp), p2 = portPos(c2, tp);
+  const dx = Math.max(60, Math.abs(p2.x - p1.x) / 2);
+  const g = { x0: p1.x, y0: p1.y, cx0: p1.x + dx, cy0: p1.y, cx1: p2.x - dx, cy1: p2.y, x1: p2.x, y1: p2.y };
+  g.d = "M " + g.x0 + " " + g.y0 + " C " + g.cx0 + " " + g.cy0 + ", " + g.cx1 + " " + g.cy1 + ", " + g.x1 + " " + g.y1;
+  return g;
+}
+function bezPoint(g, t) {
+  const u = 1 - t;
+  return {
+    x: u*u*u*g.x0 + 3*u*u*t*g.cx0 + 3*u*t*t*g.cx1 + t*t*t*g.x1,
+    y: u*u*u*g.y0 + 3*u*u*t*g.cy0 + 3*u*t*t*g.cy1 + t*t*t*g.y1
+  };
+}
 function effAnn(e) { return [...(state.graph.defaults.edges || []), ...(e.annotations || [])]; }
 function hasDim(e, dim) { return effAnn(e).some(n => state.graph.policies[n] && state.graph.policies[n].ptype === dim); }
 function sandboxOf(c) {
@@ -250,17 +277,13 @@ function renderCanvas() {
 
   const eLayer = el("g", {}, vp);
   for (const e of state.graph.edges) {
-    const [fc, fp] = e.from.split(".");
-    const [tc, tp] = e.to.split(".");
-    const c1 = comp(fc), c2 = comp(tc);
-    if (!c1 || !c2) continue;
-    const p1 = portPos(c1, fp), p2 = portPos(c2, tp);
-    const dx = Math.max(60, Math.abs(p2.x - p1.x) / 2);
-    const d = "M " + p1.x + " " + p1.y + " C " + (p1.x + dx) + " " + p1.y + ", " + (p2.x - dx) + " " + p2.y + ", " + p2.x + " " + p2.y;
+    const g = edgeGeom(e);
+    if (!g) continue;
     const cls = "edge" + (state.sel && state.sel.type === "edge" && state.sel.id === e.id ? " sel" : "") + (errs.edges.has(e.id) ? " err" : "");
-    el("path", { d, fill: "none", stroke: COLORS[e.etype] || "#6b7280", "stroke-width": 2.5, "class": cls, "data-edge": e.id, style: "cursor:pointer" }, eLayer);
-    const mx = 0.125*p1.x + 0.375*(p1.x+dx) + 0.375*(p2.x-dx) + 0.125*p2.x;
-    const my = 0.125*p1.y + 0.375*p1.y + 0.375*p2.y + 0.125*p2.y;
+    el("path", { d: g.d, fill: "none", stroke: COLORS[e.etype] || "#6b7280", "stroke-width": 2.5, "class": cls, "data-edge": e.id, style: "cursor:pointer" }, eLayer);
+    const mid = bezPoint(g, 0.5);
+    const mx = mid.x;
+    const my = mid.y;
     const label = el("text", { x: mx, y: my - 8, "text-anchor": "middle", "font-size": 11, fill: COLORS[e.etype] || "#9ca3af", "data-edge": e.id, style: "cursor:pointer;user-select:none" }, eLayer);
     label.textContent = ZH[e.etype] || e.etype;
     if (state.lens === "鉴权" || state.lens === "观测") {
@@ -417,6 +440,7 @@ function portScreenCenter(n) {
 
 /* ---------- mouse wiring ---------- */
 svg.addEventListener("mousedown", ev => {
+  if (sim && sim.playing) { sim.skip = true; return; }
   const t = ev.target;
   if (t.classList && t.classList.contains("port")) {
     ev.preventDefault();
@@ -554,6 +578,164 @@ $("btn-gen").onclick = async () => {
   $("gen-modal").classList.add("open");
 };
 $("gen-close").onclick = () => $("gen-modal").classList.remove("open");
+
+/* ---------- 仿真 ---------- */
+let sim = null;
+let toastTimer = null;
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+function verdictLine(html, cls) {
+  const b = $("verdict-body");
+  const d = document.createElement("div");
+  d.className = cls;
+  d.innerHTML = html;
+  b.appendChild(d);
+  $("verdict").scrollTop = $("verdict").scrollHeight;
+}
+
+function simWait(ms) {
+  return new Promise(res => {
+    if (sim.skip || ms <= 0) return res();
+    const t0 = performance.now();
+    (function f(now) { if (sim.skip || now - t0 >= ms) res(); else requestAnimationFrame(f); })(performance.now());
+  });
+}
+
+function compCenter(id) {
+  const c = comp(id);
+  return c ? { x: c.x + NODE_W / 2, y: c.y + NODE_H / 2 } : null;
+}
+
+async function simPulse(ov, p) {
+  if (sim.skip) return;
+  const ring = el("circle", { cx: p.x, cy: p.y, r: 40, fill: "none", stroke: "#f59e0b", "stroke-width": 3, opacity: 0.9 }, ov);
+  const t0 = performance.now();
+  await new Promise(res => {
+    (function f(now) {
+      const t = Math.min(1, (now - t0) / 500);
+      ring.setAttribute("r", 40 + 50 * t);
+      ring.setAttribute("opacity", 0.9 * (1 - t));
+      if (sim.skip || t >= 1) res(); else requestAnimationFrame(f);
+    })(performance.now());
+  });
+  ring.remove();
+}
+
+async function simHop(g, dot, glow) {
+  const setPos = p => {
+    dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y);
+    glow.setAttribute("cx", p.x); glow.setAttribute("cy", p.y);
+  };
+  if (sim.skip) { setPos(bezPoint(g, 1)); return; }
+  const t0 = performance.now();
+  await new Promise(res => {
+    (function f(now) {
+      const t = sim.skip ? 1 : Math.min(1, (now - t0) / 600);
+      setPos(bezPoint(g, t));
+      if (t >= 1) res(); else requestAnimationFrame(f);
+    })(performance.now());
+  });
+}
+
+async function simFlashRed(dot, glow) {
+  dot.setAttribute("fill", "#ef4444");
+  glow.setAttribute("fill", "#ef4444");
+  for (let i = 0; i < 3; i++) {
+    dot.setAttribute("opacity", 0.15);
+    await simWait(150);
+    dot.setAttribute("opacity", 1);
+    await simWait(150);
+  }
+}
+
+async function playSim(r) {
+  const vp = svg.firstChild;
+  if (!vp) return;
+  const old = svg.querySelector("#sim-overlay");
+  if (old) old.remove();
+  svg.querySelectorAll(".sim-ok,.sim-bad").forEach(n => n.classList.remove("sim-ok", "sim-bad"));
+  const ov = el("g", { id: "sim-overlay", "pointer-events": "none" }, vp);
+  const glow = el("circle", { r: 13, fill: "#f59e0b", opacity: 0.3 }, ov);
+  const dot = el("circle", { r: 7, fill: "#f59e0b" }, ov);
+  const start = compCenter((r.entry || "").split(".")[0]) || { x: 0, y: 0 };
+  glow.setAttribute("cx", start.x); glow.setAttribute("cy", start.y);
+  dot.setAttribute("cx", start.x); dot.setAttribute("cy", start.y);
+  let stalled = null;
+  for (const s of (r.steps || [])) {
+    if (s.step === "enter") {
+      const p = compCenter(s.element.split(".")[0]);
+      if (p) { dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); glow.setAttribute("cx", p.x); glow.setAttribute("cy", p.y); }
+      await simWait(300);
+    } else if (s.step === "process") {
+      const p = compCenter(s.element);
+      if (p) await simPulse(ov, p);
+    } else if (s.step === "hop") {
+      const e = edgeById(s.element);
+      const g = e && edgeGeom(e);
+      if (g) {
+        await simHop(g, dot, glow);
+        const pe = svg.querySelector('path[data-edge="' + s.element + '"]');
+        if (pe) { pe.classList.add("sim-ok"); sim.litEdges.push(pe); }
+      }
+    } else if (s.step === "stall") {
+      stalled = s;
+      const pe = s.element !== "-" && svg.querySelector('path[data-edge="' + s.element + '"]');
+      if (pe) pe.classList.add("sim-bad");
+      await simFlashRed(dot, glow);
+      verdictLine('<span class="ruletag">[simulate]</span> ' + esc(s.element) + " " + esc(s.message || ""), "sim-err-line");
+      toast("仿真卡在 " + s.element);
+      break;
+    } else if (s.step === "done") {
+      break;
+    }
+  }
+  if (stalled || !r.ok) {
+    const el2 = stalled ? stalled.element : "-";
+    verdictLine("❌ 仿真卡在 " + esc(el2), "sim-err-line");
+  } else {
+    if (sim.skip) { dot.setAttribute("opacity", 0); glow.setAttribute("opacity", 0); }
+    else {
+      const t0 = performance.now();
+      await new Promise(res => {
+        (function f(now) {
+          const t = Math.min(1, (now - t0) / 400);
+          dot.setAttribute("opacity", 1 - t);
+          glow.setAttribute("opacity", 0.3 * (1 - t));
+          if (sim.skip || t >= 1) res(); else requestAnimationFrame(f);
+        })(performance.now());
+      });
+    }
+    ov.remove();
+    verdictLine("✅ 仿真完成：入口 " + esc(r.entry) + "，" + r.hops + " 跳全通", "sim-ok-line");
+    const lit = sim.litEdges.slice();
+    setTimeout(() => lit.forEach(n => n.classList.remove("sim-ok")), 5000);
+  }
+}
+
+$("btn-sim").onclick = async () => {
+  if (sim && sim.playing) return;
+  const btn = $("btn-sim");
+  btn.disabled = true;
+  btn.textContent = "仿真中…";
+  sim = { playing: true, skip: false, litEdges: [] };
+  try {
+    const r = await api("POST", "/api/simulate", { yaml: state.yaml });
+    await playSim(r);
+  } catch (e) {
+    verdictLine("❌ 仿真请求失败: " + esc(e.message || e), "sim-err-line");
+  } finally {
+    sim.playing = false;
+    btn.disabled = false;
+    btn.textContent = "仿真 ▶";
+  }
+};
 
 /* ---------- boot ---------- */
 (async function boot() {

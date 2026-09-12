@@ -1,5 +1,6 @@
 use crate::generate;
 use crate::model::{self, Arch};
+use crate::simulate::{self, SimResp, SimStep};
 use crate::validate::{self, VErr};
 use axum::extract::State;
 use axum::response::Html;
@@ -143,6 +144,22 @@ async fn post_generate(State(st): State<Arc<AppState>>, Json(req): Json<YamlReq>
     Json(GenResp { files })
 }
 
+async fn post_simulate(Json(req): Json<YamlReq>) -> Json<SimResp> {
+    match model::parse(&req.yaml) {
+        Err(e) => Json(SimResp {
+            ok: false,
+            entry: String::new(),
+            hops: 0,
+            steps: vec![SimStep {
+                step: "stall".to_string(),
+                element: "-".to_string(),
+                message: Some(format!("YAML 解析失败: {}", e)),
+            }],
+        }),
+        Ok(graph) => Json(simulate::simulate(&graph)),
+    }
+}
+
 pub fn router(dir: PathBuf) -> Router {
     let st = Arc::new(AppState { dir });
     Router::new()
@@ -150,6 +167,7 @@ pub fn router(dir: PathBuf) -> Router {
         .route("/api/arch", get(get_arch))
         .route("/api/arch", put(put_arch))
         .route("/api/validate", post(post_validate))
+        .route("/api/simulate", post(post_simulate))
         .route("/api/generate", post(post_generate))
         .with_state(st)
 }
