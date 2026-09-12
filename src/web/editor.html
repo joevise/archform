@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Archform</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: #0b1220; color: #e5e7eb; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; overflow: hidden; }
+#app { display: grid; grid-template-rows: 48px 40px 1fr 160px; height: 100vh; }
+#topbar { display: flex; align-items: center; gap: 12px; padding: 0 16px; background: #111827; border-bottom: 1px solid #1f2937; }
+#topbar .brand { font-weight: 700; letter-spacing: 1px; }
+#dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; display: inline-block; }
+#dot.bad { background: #ef4444; }
+#fname { color: #9ca3af; font-size: 13px; }
+#score { font-size: 13px; color: #9ca3af; }
+.spacer { flex: 1; }
+button { background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+button:hover { background: #374151; }
+button.active { background: #2563eb; border-color: #2563eb; }
+#lensbar { display: flex; align-items: center; gap: 8px; padding: 0 16px; background: #0f172a; border-bottom: 1px solid #1f2937; font-size: 13px; color: #9ca3af; }
+#main { display: grid; grid-template-columns: 160px 1fr 300px; min-height: 0; position: relative; }
+#palette { background: #0f172a; border-right: 1px solid #1f2937; padding: 10px; overflow-y: auto; }
+#palette h3 { font-size: 12px; color: #6b7280; margin-bottom: 8px; }
+.pal-item { border: 1px solid #374151; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; cursor: grab; background: #111827; font-size: 13px; user-select: none; }
+.pal-item:hover { border-color: #60a5fa; }
+.pal-item .kind-badge { float: right; font-size: 10px; color: #9ca3af; }
+#canvas-wrap { position: relative; min-width: 0; min-height: 0; }
+#canvas { width: 100%; height: 100%; display: block; background: #0b1220; cursor: default; }
+#zoomctl { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center; background: rgba(17,24,39,.85); border: 1px solid #374151; border-radius: 8px; padding: 4px 10px; font-size: 12px; }
+#inspector { background: #0f172a; border-left: 1px solid #1f2937; padding: 12px; overflow-y: auto; font-size: 13px; }
+#inspector h3 { font-size: 12px; color: #6b7280; margin-bottom: 10px; }
+#inspector label { display: block; color: #9ca3af; font-size: 11px; margin: 8px 0 3px; }
+#inspector input, #inspector select { width: 100%; background: #111827; border: 1px solid #374151; color: #e5e7eb; border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+#inspector .portrow { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #1f2937; }
+#inspector .pdot { width: 10px; height: 10px; border-radius: 50%; }
+#inspector .danger { background: #7f1d1d; border-color: #b91c1c; margin-top: 14px; width: 100%; }
+#verdict { background: #0f172a; border-top: 1px solid #1f2937; overflow-y: auto; padding: 8px 12px; font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+#verdict .vhead { color: #6b7280; margin-bottom: 6px; }
+#verdict .ok { color: #22c55e; }
+#verdict .err { color: #f87171; cursor: pointer; padding: 2px 0; }
+#verdict .err:hover { background: #1f2937; }
+#verdict .ruletag { color: #fbbf24; }
+#yaml-drawer { position: absolute; left: 160px; right: 300px; bottom: 0; height: 45%; background: #020617; border-top: 2px solid #2563eb; display: none; flex-direction: column; z-index: 20; }
+#yaml-drawer.open { display: flex; }
+#yaml-drawer .yd-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; color: #9ca3af; border-bottom: 1px solid #1f2937; }
+#yaml-text { flex: 1; background: #020617; color: #d1d5db; border: none; outline: none; resize: none; padding: 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; }
+#gen-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 50; }
+#gen-modal.open { display: flex; }
+#gen-box { width: 640px; max-height: 70vh; overflow-y: auto; background: #111827; border: 1px solid #374151; border-radius: 10px; padding: 16px; }
+#gen-box details { margin: 6px 0; }
+#gen-box summary { cursor: pointer; color: #93c5fd; font-size: 13px; }
+#gen-box pre { background: #020617; padding: 8px; border-radius: 6px; font-size: 11px; overflow-x: auto; margin-top: 4px; }
+.node-rect { fill: #1f2937; stroke: #4b5563; }
+.node.sel .node-rect { stroke: #60a5fa; stroke-width: 2.5; }
+.edge.sel { stroke-width: 4 !important; }
+.edge.err { stroke: #ef4444 !important; stroke-dasharray: 6 4; }
+.port { cursor: crosshair; }
+.port.halo { stroke: #fff; stroke-width: 3; r: 10; }
+@keyframes flash { 0%,100% { filter: none; } 50% { filter: drop-shadow(0 0 14px #facc15); } }
+.flash { animation: flash .5s ease-in-out 3; }
+#ghost { position: fixed; pointer-events: none; background: #2563eb; color: #fff; padding: 6px 10px; border-radius: 8px; font-size: 12px; display: none; z-index: 99; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <span class="brand">ARCHFORM</span>
+    <span id="dot"></span>
+    <span id="fname">archform.yaml</span>
+    <span id="score"></span>
+    <span class="spacer"></span>
+    <button id="btn-gen">生成⚡</button>
+    <button id="btn-yaml">YAML</button>
+  </div>
+  <div id="lensbar">
+    透镜:
+    <button class="lens active" data-lens="拓扑">拓扑</button>
+    <button class="lens" data-lens="鉴权">鉴权</button>
+    <button class="lens" data-lens="观测">观测</button>
+    <button class="lens" data-lens="安全">安全</button>
+  </div>
+  <div id="main">
+    <div id="palette"><h3>积木盒</h3></div>
+    <div id="canvas-wrap">
+      <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="zoomctl"><span id="zoom-label">100%</span><button id="zoom-reset">复位</button></div>
+    </div>
+    <div id="inspector"><h3>检查器</h3><div id="insp-body" style="color:#6b7280">点击组件或边查看详情</div></div>
+  </div>
+  <div id="yaml-drawer">
+    <div class="yd-head"><span>archform.yaml（可编辑）</span><span class="spacer"></span><button id="btn-apply">应用</button><button id="btn-close-yaml">关闭</button></div>
+    <textarea id="yaml-text" spellcheck="false"></textarea>
+  </div>
+  <div id="verdict"><div class="vhead">验证台</div><div id="verdict-body"></div></div>
+</div>
+<div id="gen-modal"><div id="gen-box"><div style="display:flex;align-items:center"><b>生成结果</b><span class="spacer"></span><button id="gen-close">关闭</button></div><div id="gen-list"></div></div></div>
+<div id="ghost"></div>
+<script>
+"use strict";
+const NS = "http://www.w3.org/2000/svg";
+const COLORS = {"sync-call":"#dc2626","event":"#f59e0b","data-store":"#7c3aed","tool-call":"#0ea5e9","model-io":"#10b981","stream":"#ec4899"};
+const ZH = {"sync-call":"同步调用","event":"异步事件","data-store":"数据存储","tool-call":"工具调用","model-io":"模型I/O","stream":"流式"};
+const KIND_PORTS = {
+  "gateway": [["api","sync-call","server"],["events","event",null],["chat","stream","server"]],
+  "service": [["invoke","sync-call","server"],["emitted","event",null],["store","data-store",null]],
+  "ai-runtime": [["invoke","sync-call","server"],["llm","model-io",null],["tools","tool-call",null],["session","data-store",null]],
+  "datastore": [["vault","data-store","server"],["admin","sync-call","server"]],
+  "bus": [["topic","event","server"]],
+  "app": [["backend","sync-call",null],["ui","stream",null]]
+};
+const KINDS = Object.keys(KIND_PORTS);
+const NODE_W = 260, NODE_H = 120;
+
+let state = { graph: null, yaml: "", errors: [], lens: "拓扑", sel: null, zoom: 1, pan: {x: 0, y: 0} };
+let drag = null;       // {mode:'pan'|'node'|'connect'|'palette', ...}
+let tempLine = null;
+let haloPorts = [];
+
+const $ = id => document.getElementById(id);
+const svg = $("canvas");
+
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+/* ---------- YAML dump (schema-specific) ---------- */
+function yq(v) { return JSON.stringify(String(v)); }
+function dumpYaml(g) {
+  let s = "version: " + (g.version || 1) + "\n";
+  s += "policies:";
+  const pnames = Object.keys(g.policies || {});
+  if (!pnames.length) s += " {}\n"; else {
+    s += "\n";
+    for (const n of pnames) {
+      const p = g.policies[n];
+      s += "  " + yq(n) + ":\n    ptype: " + yq(p.ptype) + "\n";
+      if (p.scheme != null) s += "    scheme: " + yq(p.scheme) + "\n";
+      if (p.pdp != null) s += "    pdp: " + yq(p.pdp) + "\n";
+    }
+  }
+  s += "defaults:\n  edges: [" + (g.defaults.edges || []).map(yq).join(", ") + "]\n";
+  const nk = Object.keys(g.defaults.nodes || {});
+  if (!nk.length) s += "  nodes: {}\n"; else {
+    s += "  nodes:\n";
+    for (const k of nk) {
+      s += "    " + yq(k) + ":\n";
+      for (const a in g.defaults.nodes[k]) s += "      " + yq(a) + ": " + yq(g.defaults.nodes[k][a]) + "\n";
+    }
+  }
+  s += "components:";
+  if (!g.components.length) s += " []\n"; else {
+    s += "\n";
+    for (const c of g.components) {
+      s += "  - id: " + yq(c.id) + "\n    kind: " + yq(c.kind) + "\n    x: " + Math.round(c.x) + "\n    y: " + Math.round(c.y) + "\n";
+      const ak = Object.keys(c.annotations || {});
+      if (!ak.length) s += "    annotations: {}\n"; else {
+        s += "    annotations:\n";
+        for (const a of ak) s += "      " + yq(a) + ": " + yq(c.annotations[a]) + "\n";
+      }
+      s += "    ports:";
+      if (!c.ports.length) s += " []\n"; else {
+        s += "\n";
+        for (const p of c.ports) {
+          s += "      - id: " + yq(p.id) + "\n        ptype: " + yq(p.ptype) + "\n";
+          if (p.role != null) s += "        role: " + yq(p.role) + "\n";
+          if (p.spec != null) s += "        spec: " + yq(p.spec) + "\n";
+        }
+      }
+    }
+  }
+  s += "edges:";
+  if (!g.edges.length) s += " []\n"; else {
+    s += "\n";
+    for (const e of g.edges) {
+      s += "  - id: " + yq(e.id) + "\n    from: " + yq(e.from) + "\n    to: " + yq(e.to) + "\n    etype: " + yq(e.etype) + "\n";
+      if (e.spec != null) s += "    spec: " + yq(e.spec) + "\n";
+      s += "    annotations: [" + (e.annotations || []).map(yq).join(", ") + "]\n";
+    }
+  }
+  return s;
+}
+
+/* ---------- API ---------- */
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: {"Content-Type":"application/json"}, body: body ? JSON.stringify(body) : undefined });
+  return r.json();
+}
+
+async function sync() {
+  state.yaml = dumpYaml(state.graph);
+  const r = await api("PUT", "/api/arch", { yaml: state.yaml });
+  state.errors = r.errors || [];
+  if (r.graph) state.graph = r.graph;
+  renderAll();
+}
+
+/* ---------- graph helpers ---------- */
+function comp(id) { return state.graph.components.find(c => c.id === id); }
+function edgeById(id) { return state.graph.edges.find(e => e.id === id); }
+function errElements() {
+  const m = { comps: new Set(), edges: new Set() };
+  for (const e of state.errors) {
+    if (edgeById(e.element)) m.edges.add(e.element);
+    else if (comp(e.element)) m.comps.add(e.element);
+  }
+  return m;
+}
+function portPos(c, portId) {
+  const idx = c.ports.findIndex(p => p.id === portId);
+  if (idx < 0) return { x: c.x, y: c.y };
+  const left = idx % 2 === 0;
+  const col = Math.floor(idx / 2);
+  return { x: c.x + (left ? 0 : NODE_W), y: c.y + 44 + col * 24 };
+}
+function effAnn(e) { return [...(state.graph.defaults.edges || []), ...(e.annotations || [])]; }
+function hasDim(e, dim) { return effAnn(e).some(n => state.graph.policies[n] && state.graph.policies[n].ptype === dim); }
+function sandboxOf(c) {
+  if (c.annotations && c.annotations.sandbox) return c.annotations.sandbox;
+  const n = (state.graph.defaults.nodes || {})[c.kind];
+  return n && n.sandbox ? n.sandbox : null;
+}
+function nextId(prefix, taken) { let i = 1; while (taken.has(prefix + "-" + i)) i++; return prefix + "-" + i; }
+
+function toSvgPoint(evt) {
+  const r = svg.getBoundingClientRect();
+  return { x: (evt.clientX - r.left - state.pan.x) / state.zoom, y: (evt.clientY - r.top - state.pan.y) / state.zoom };
+}
+
+/* ---------- render ---------- */
+function renderAll() { renderTop(); renderCanvas(); renderInspector(); renderVerdict(); if ($("yaml-drawer").classList.contains("open")) $("yaml-text").value = state.yaml; }
+
+function renderTop() {
+  const fail = state.errors.length;
+  const pass = state.lastPass != null ? state.lastPass : "";
+  $("dot").className = fail ? "bad" : "";
+  $("score").textContent = fail ? ("❌ " + fail + " 个错误") : ("✅ " + (pass !== "" ? pass + "/" + pass : "全绿"));
+  $("zoom-label").textContent = Math.round(state.zoom * 100) + "%";
+}
+
+function renderCanvas() {
+  svg.innerHTML = "";
+  const vp = el("g", { transform: "translate(" + state.pan.x + "," + state.pan.y + ") scale(" + state.zoom + ")" }, svg);
+  const errs = errElements();
+
+  const eLayer = el("g", {}, vp);
+  for (const e of state.graph.edges) {
+    const [fc, fp] = e.from.split(".");
+    const [tc, tp] = e.to.split(".");
+    const c1 = comp(fc), c2 = comp(tc);
+    if (!c1 || !c2) continue;
+    const p1 = portPos(c1, fp), p2 = portPos(c2, tp);
+    const dx = Math.max(60, Math.abs(p2.x - p1.x) / 2);
+    const d = "M " + p1.x + " " + p1.y + " C " + (p1.x + dx) + " " + p1.y + ", " + (p2.x - dx) + " " + p2.y + ", " + p2.x + " " + p2.y;
+    const cls = "edge" + (state.sel && state.sel.type === "edge" && state.sel.id === e.id ? " sel" : "") + (errs.edges.has(e.id) ? " err" : "");
+    el("path", { d, fill: "none", stroke: COLORS[e.etype] || "#6b7280", "stroke-width": 2.5, "class": cls, "data-edge": e.id, style: "cursor:pointer" }, eLayer);
+    const mx = 0.125*p1.x + 0.375*(p1.x+dx) + 0.375*(p2.x-dx) + 0.125*p2.x;
+    const my = 0.125*p1.y + 0.375*p1.y + 0.375*p2.y + 0.125*p2.y;
+    const label = el("text", { x: mx, y: my - 8, "text-anchor": "middle", "font-size": 11, fill: COLORS[e.etype] || "#9ca3af", "data-edge": e.id, style: "cursor:pointer;user-select:none" }, eLayer);
+    label.textContent = ZH[e.etype] || e.etype;
+    if (state.lens === "鉴权" || state.lens === "观测") {
+      const dim = state.lens === "鉴权" ? "auth" : "trace";
+      const okk = hasDim(e, dim);
+      el("rect", { x: mx - 9, y: my + 2, width: 18, height: 18, rx: 4, fill: okk ? "#16a34a" : "#dc2626" }, eLayer);
+      const t = el("text", { x: mx, y: my + 15, "text-anchor": "middle", "font-size": 11, fill: "#fff", style: "user-select:none" }, eLayer);
+      t.textContent = dim === "auth" ? "A" : "T";
+    }
+  }
+
+  const nLayer = el("g", {}, vp);
+  for (const c of state.graph.components) {
+    const g = el("g", { "class": "node" + (state.sel && state.sel.type === "comp" && state.sel.id === c.id ? " sel" : ""), "data-comp": c.id, style: "cursor:move" }, nLayer);
+    el("rect", { x: c.x, y: c.y, width: NODE_W, height: NODE_H, rx: 12, "class": "node-rect", "stroke-width": errs.comps.has(c.id) ? 2.5 : 1.5, stroke: errs.comps.has(c.id) ? "#ef4444" : "#4b5563" }, g);
+    const title = el("text", { x: c.x + 14, y: c.y + 26, "font-size": 14, fill: "#f3f4f6", "font-weight": "600", style: "user-select:none" }, g);
+    title.textContent = c.id;
+    el("rect", { x: c.x + NODE_W - 86, y: c.y + 10, width: 76, height: 18, rx: 9, fill: "#374151" }, g);
+    const kb = el("text", { x: c.x + NODE_W - 48, y: c.y + 23, "text-anchor": "middle", "font-size": 10, fill: "#d1d5db", style: "user-select:none" }, g);
+    kb.textContent = c.kind;
+    c.ports.forEach((p, idx) => {
+      const pos = portPos(c, p.id);
+      const circ = el("circle", { cx: pos.x, cy: pos.y, r: 6, fill: COLORS[p.ptype] || "#6b7280", "class": "port", "data-comp": c.id, "data-port": p.id, "data-ptype": p.ptype }, g);
+      const tt = el("title", {}, circ); tt.textContent = p.id + " : " + p.ptype + (p.role ? " (" + p.role + ")" : "");
+      const lbl = el("text", { x: pos.x + (idx % 2 === 0 ? 10 : -10), y: pos.y + 4, "text-anchor": idx % 2 === 0 ? "start" : "end", "font-size": 10, fill: "#9ca3af", style: "user-select:none;pointer-events:none" }, g);
+      lbl.textContent = p.id;
+    });
+    if (state.lens === "安全" && c.kind === "ai-runtime") {
+      const sb = sandboxOf(c);
+      const okk = sb === "container" || sb === "seccomp";
+      el("rect", { x: c.x + NODE_W - 110, y: c.y + NODE_H - 24, width: 100, height: 18, rx: 9, fill: okk ? "#16a34a" : "#dc2626" }, g);
+      const t = el("text", { x: c.x + NODE_W - 60, y: c.y + NODE_H - 11, "text-anchor": "middle", "font-size": 10, fill: "#fff", style: "user-select:none" }, g);
+      t.textContent = "sandbox: " + (sb || "缺失");
+    }
+  }
+}
+
+function renderInspector() {
+  const b = $("insp-body");
+  if (!state.sel) { b.innerHTML = '<span style="color:#6b7280">点击组件或边查看详情</span>'; return; }
+  if (state.sel.type === "comp") {
+    const c = comp(state.sel.id);
+    if (!c) { state.sel = null; b.innerHTML = ""; return; }
+    let ports = c.ports.map(p => '<div class="portrow"><span class="pdot" style="background:' + (COLORS[p.ptype]||"#6b7280") + '"></span><span>' + esc(p.id) + '</span><span style="color:#6b7280;margin-left:auto">' + esc(p.ptype) + (p.role ? " · " + esc(p.role) : "") + '</span></div>').join("");
+    b.innerHTML =
+      '<label>组件 ID</label><input id="insp-id" value="' + esc(c.id) + '">' +
+      '<label>类型</label><input value="' + esc(c.kind) + '" disabled>' +
+      '<label>sandbox 注解</label><input id="insp-sandbox" value="' + esc((c.annotations && c.annotations.sandbox) || "") + '" placeholder="container|seccomp|off">' +
+      '<label>端口 (' + c.ports.length + ')</label>' + ports +
+      '<button class="danger" id="insp-del">删除组件</button>';
+    $("insp-id").onchange = ev => { renameComp(c.id, ev.target.value.trim()); };
+    $("insp-sandbox").onchange = ev => {
+      const v = ev.target.value.trim();
+      if (!c.annotations) c.annotations = {};
+      if (v) c.annotations.sandbox = v; else delete c.annotations.sandbox;
+      sync();
+    };
+    $("insp-del").onclick = () => { if (confirm("删除组件 " + c.id + " 及其相连的边？")) { state.graph.edges = state.graph.edges.filter(e => !e.from.startsWith(c.id + ".") && !e.to.startsWith(c.id + ".")); state.graph.components = state.graph.components.filter(x => x.id !== c.id); state.sel = null; sync(); } };
+  } else {
+    const e = edgeById(state.sel.id);
+    if (!e) { state.sel = null; b.innerHTML = ""; return; }
+    b.innerHTML =
+      '<label>边 ID</label><input id="insp-id" value="' + esc(e.id) + '">' +
+      '<label>契约类型</label><input value="' + esc(e.etype) + " · " + esc(ZH[e.etype]||"") + '" disabled>' +
+      '<label>from</label><input value="' + esc(e.from) + '" disabled>' +
+      '<label>to</label><input value="' + esc(e.to) + '" disabled>' +
+      '<label>spec</label><input id="insp-spec" value="' + esc(e.spec || "") + '" placeholder="openapi:paths=/x 或 asyncapi:topic=t">' +
+      '<label>注解（逗号分隔，叠加 defaults.edges）</label><input id="insp-ann" value="' + esc((e.annotations||[]).join(", ")) + '">' +
+      '<button class="danger" id="insp-del">删除边</button>';
+    $("insp-id").onchange = ev => {
+      const v = ev.target.value.trim();
+      if (v && !edgeById(v) && !comp(v)) { e.id = v; state.sel.id = v; sync(); }
+    };
+    $("insp-spec").onchange = ev => { e.spec = ev.target.value.trim() || null; sync(); };
+    $("insp-ann").onchange = ev => { e.annotations = ev.target.value.split(",").map(s => s.trim()).filter(Boolean); sync(); };
+    $("insp-del").onclick = () => { if (confirm("删除边 " + e.id + "？")) { state.graph.edges = state.graph.edges.filter(x => x.id !== e.id); state.sel = null; sync(); } };
+  }
+}
+
+function renderVerdict() {
+  const b = $("verdict-body");
+  if (!state.errors.length) { b.innerHTML = '<div class="ok">✅ 全部校验通过</div>'; return; }
+  b.innerHTML = state.errors.map((e, i) => '<div class="err" data-i="' + i + '"><span class="ruletag">[' + esc(e.rule) + ']</span> ' + esc(e.element) + ' ' + esc(e.message) + '</div>').join("");
+  b.querySelectorAll(".err").forEach(n => n.onclick = () => jumpTo(state.errors[+n.dataset.i].element));
+}
+
+function jumpTo(element) {
+  let target = null;
+  const c = comp(element);
+  if (c) target = { x: c.x + NODE_W/2, y: c.y + NODE_H/2 };
+  const e = edgeById(element);
+  if (!target && e) {
+    const c1 = comp(e.from.split(".")[0]);
+    if (c1) target = { x: c1.x + NODE_W/2, y: c1.y + NODE_H/2 };
+  }
+  if (!target) return;
+  const r = svg.getBoundingClientRect();
+  state.pan = { x: r.width/2 - target.x * state.zoom, y: r.height/2 - target.y * state.zoom };
+  renderAll();
+  requestAnimationFrame(() => {
+    let nodeEl = svg.querySelector(c ? '[data-comp="' + element + '"]' : '[data-edge="' + element + '"]');
+    if (nodeEl) { nodeEl.classList.add("flash"); setTimeout(() => nodeEl.classList.remove("flash"), 1600); }
+  });
+}
+
+function renameComp(oldId, newId) {
+  if (!newId || newId === oldId || comp(newId) || edgeById(newId)) { renderAll(); return; }
+  const c = comp(oldId); if (!c) return;
+  c.id = newId;
+  for (const e of state.graph.edges) {
+    if (e.from.startsWith(oldId + ".")) e.from = newId + e.from.slice(oldId.length);
+    if (e.to.startsWith(oldId + ".")) e.to = newId + e.to.slice(oldId.length);
+  }
+  state.sel = { type: "comp", id: newId };
+  sync();
+}
+
+/* ---------- palette ---------- */
+function renderPalette() {
+  const pal = $("palette");
+  for (const k of KINDS) {
+    const d = document.createElement("div");
+    d.className = "pal-item";
+    d.dataset.kind = k;
+    d.innerHTML = esc(k) + '<span class="kind-badge">' + KIND_PORTS[k].length + ' 口</span>';
+    d.onmousedown = ev => { ev.preventDefault(); drag = { mode: "palette", kind: k }; const gh = $("ghost"); gh.textContent = k; gh.style.display = "block"; gh.style.left = ev.clientX + 10 + "px"; gh.style.top = ev.clientY + 10 + "px"; };
+    pal.appendChild(d);
+  }
+}
+
+function addComponent(kind, pt) {
+  const taken = new Set(state.graph.components.map(c => c.id));
+  const id = nextId(kind === "service" ? "svc" : kind, taken);
+  const ports = KIND_PORTS[kind].map(([pid, ptype, role]) => ({ id: pid, ptype, role }));
+  state.graph.components.push({ id, kind, x: Math.round(pt.x - NODE_W/2), y: Math.round(pt.y - 30), annotations: {}, ports });
+  state.sel = { type: "comp", id };
+  sync();
+}
+
+/* ---------- connect ---------- */
+function clearHalos() { haloPorts.forEach(n => n.classList.remove("halo")); haloPorts = []; }
+
+function markCompatible(ptype, selfComp) {
+  clearHalos();
+  svg.querySelectorAll(".port").forEach(n => {
+    if (n.dataset.ptype === ptype && n.dataset.comp !== selfComp) { n.classList.add("halo"); haloPorts.push(n); }
+  });
+}
+
+function portScreenCenter(n) {
+  const r = n.getBoundingClientRect();
+  return { x: r.left + r.width/2, y: r.top + r.height/2 };
+}
+
+/* ---------- mouse wiring ---------- */
+svg.addEventListener("mousedown", ev => {
+  const t = ev.target;
+  if (t.classList && t.classList.contains("port")) {
+    ev.preventDefault();
+    drag = { mode: "connect", fromComp: t.dataset.comp, fromPort: t.dataset.port, ptype: t.dataset.ptype };
+    markCompatible(t.dataset.ptype, t.dataset.comp);
+    const vp = svg.firstChild;
+    tempLine = el("line", { stroke: "#e5e7eb", "stroke-width": 1.5, "stroke-dasharray": "5 4" }, vp);
+    const c = comp(t.dataset.comp); const p = portPos(c, t.dataset.port);
+    tempLine.setAttribute("x1", p.x); tempLine.setAttribute("y1", p.y);
+    tempLine.setAttribute("x2", p.x); tempLine.setAttribute("y2", p.y);
+    return;
+  }
+  const edgeEl = t.closest ? t.closest("[data-edge]") : null;
+  const nodeEl = t.closest ? t.closest("[data-comp]") : null;
+  if (nodeEl) {
+    const c = comp(nodeEl.dataset.comp);
+    drag = { mode: "node", comp: c, start: toSvgPoint(ev), ox: c.x, oy: c.y, moved: false };
+  } else if (edgeEl) {
+    state.sel = { type: "edge", id: edgeEl.dataset.edge };
+    renderAll();
+  } else {
+    drag = { mode: "pan", sx: ev.clientX, sy: ev.clientY, opx: state.pan.x, opy: state.pan.y, moved: false };
+  }
+});
+
+window.addEventListener("mousemove", ev => {
+  if (!drag) return;
+  if (drag.mode === "palette") {
+    const gh = $("ghost"); gh.style.left = ev.clientX + 10 + "px"; gh.style.top = ev.clientY + 10 + "px";
+  } else if (drag.mode === "pan") {
+    if (Math.abs(ev.clientX - drag.sx) + Math.abs(ev.clientY - drag.sy) > 3) drag.moved = true;
+    state.pan.x = drag.opx + (ev.clientX - drag.sx);
+    state.pan.y = drag.opy + (ev.clientY - drag.sy);
+    renderCanvas(); renderTop();
+  } else if (drag.mode === "node") {
+    const pt = toSvgPoint(ev);
+    drag.comp.x = Math.round(drag.ox + pt.x - drag.start.x);
+    drag.comp.y = Math.round(drag.oy + pt.y - drag.start.y);
+    drag.moved = true;
+    renderCanvas();
+  } else if (drag.mode === "connect" && tempLine) {
+    const pt = toSvgPoint(ev);
+    tempLine.setAttribute("x2", pt.x); tempLine.setAttribute("y2", pt.y);
+  }
+});
+
+window.addEventListener("mouseup", ev => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (d.mode === "palette") {
+    $("ghost").style.display = "none";
+    const r = svg.getBoundingClientRect();
+    if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) addComponent(d.kind, toSvgPoint(ev));
+  } else if (d.mode === "pan") {
+    if (!d.moved) { state.sel = null; renderAll(); }
+  } else if (d.mode === "node") {
+    if (!d.moved) { state.sel = { type: "comp", id: d.comp.id }; renderAll(); }
+    else sync();
+  } else if (d.mode === "connect") {
+    if (tempLine) { tempLine.remove(); tempLine = null; }
+    let hit = null;
+    for (const n of haloPorts) {
+      const c = portScreenCenter(n);
+      if (Math.hypot(c.x - ev.clientX, c.y - ev.clientY) < 16) { hit = n; break; }
+    }
+    clearHalos();
+    if (hit) {
+      const taken = new Set(state.graph.edges.map(e => e.id));
+      state.graph.edges.push({
+        id: nextId("e", taken),
+        from: d.fromComp + "." + d.fromPort,
+        to: hit.dataset.comp + "." + hit.dataset.port,
+        etype: d.ptype,
+        spec: null,
+        annotations: []
+      });
+      sync();
+    } else renderCanvas();
+  }
+});
+
+svg.addEventListener("wheel", ev => {
+  ev.preventDefault();
+  const r = svg.getBoundingClientRect();
+  const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const old = state.zoom;
+  state.zoom = Math.min(2.5, Math.max(0.3, state.zoom * (ev.deltaY < 0 ? 1.1 : 0.9)));
+  state.pan.x = mx - (mx - state.pan.x) * (state.zoom / old);
+  state.pan.y = my - (my - state.pan.y) * (state.zoom / old);
+  renderCanvas(); renderTop();
+}, { passive: false });
+
+$("zoom-reset").onclick = () => { state.zoom = 1; state.pan = {x:0,y:0}; renderCanvas(); renderTop(); };
+
+document.querySelectorAll(".lens").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".lens").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  state.lens = b.dataset.lens;
+  renderCanvas();
+});
+
+$("btn-yaml").onclick = () => { $("yaml-drawer").classList.toggle("open"); $("yaml-text").value = state.yaml; };
+$("btn-close-yaml").onclick = () => $("yaml-drawer").classList.remove("open");
+$("btn-apply").onclick = async () => {
+  const r = await api("PUT", "/api/arch", { yaml: $("yaml-text").value });
+  state.errors = r.errors || [];
+  if (r.graph) { state.graph = r.graph; state.yaml = $("yaml-text").value; }
+  renderAll();
+};
+
+$("btn-gen").onclick = async () => {
+  const r = await api("POST", "/api/generate", { yaml: state.yaml });
+  $("gen-list").innerHTML = (r.files || []).map(f =>
+    "<details><summary>" + esc(f.path) + "</summary><pre>" + esc(f.content) + "</pre></details>").join("") || "<div>无文件（YAML 解析失败？）</div>";
+  $("gen-modal").classList.add("open");
+};
+$("gen-close").onclick = () => $("gen-modal").classList.remove("open");
+
+/* ---------- boot ---------- */
+(async function boot() {
+  renderPalette();
+  const r = await api("GET", "/api/arch");
+  state.yaml = r.yaml;
+  state.graph = r.graph;
+  const v = await api("POST", "/api/validate", { yaml: state.yaml });
+  state.errors = v.errors || [];
+  state.lastPass = v.pass;
+  renderAll();
+})();
+</script>
+</body>
+</html>

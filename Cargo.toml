@@ -1,0 +1,18 @@
+[package]
+name = "archform"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "archform"
+path = "src/lib.rs"
+
+[[bin]]
+name = "archform"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"

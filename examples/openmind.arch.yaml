@@ -1,0 +1,170 @@
+version: 1
+policies:
+  auth-jwt:
+    ptype: auth
+    scheme: jwt-bearer
+    pdp: auth-service
+  otel:
+    ptype: trace
+    scheme: opentelemetry
+    pdp: otel-collector
+defaults:
+  edges: [auth-jwt, otel]
+  nodes:
+    ai-runtime:
+      sandbox: seccomp
+components:
+  - id: gateway
+    kind: gateway
+    x: 80
+    y: 300
+    annotations: {}
+    ports:
+      - id: api
+        ptype: sync-call
+        role: server
+      - id: events
+        ptype: event
+      - id: chat
+        ptype: stream
+        role: server
+  - id: mind-engine
+    kind: ai-runtime
+    x: 520
+    y: 120
+    annotations: {}
+    ports:
+      - id: invoke
+        ptype: sync-call
+        role: server
+      - id: llm
+        ptype: model-io
+      - id: tools
+        ptype: tool-call
+      - id: session
+        ptype: data-store
+  - id: mind-vault
+    kind: datastore
+    x: 980
+    y: 300
+    annotations: {}
+    ports:
+      - id: vault
+        ptype: data-store
+        role: server
+      - id: admin
+        ptype: sync-call
+        role: server
+  - id: collector
+    kind: service
+    x: 520
+    y: 480
+    annotations: {}
+    ports:
+      - id: invoke
+        ptype: sync-call
+        role: server
+      - id: emitted
+        ptype: event
+      - id: store
+        ptype: data-store
+  - id: bus
+    kind: bus
+    x: 80
+    y: 620
+    annotations: {}
+    ports:
+      - id: topic
+        ptype: event
+        role: server
+  - id: auth-service
+    kind: service
+    x: 980
+    y: 60
+    annotations: {}
+    ports:
+      - id: invoke
+        ptype: sync-call
+        role: server
+      - id: emitted
+        ptype: event
+      - id: store
+        ptype: data-store
+  - id: otel-collector
+    kind: service
+    x: 980
+    y: 540
+    annotations: {}
+    ports:
+      - id: invoke
+        ptype: sync-call
+        role: server
+      - id: emitted
+        ptype: event
+      - id: store
+        ptype: data-store
+edges:
+  - id: e1
+    from: gateway.api
+    to: mind-engine.invoke
+    etype: sync-call
+    spec: "openapi:paths=/api/chat,/api/complete"
+    annotations: []
+  - id: e2
+    from: mind-engine.session
+    to: mind-vault.vault
+    etype: data-store
+    annotations: []
+  - id: e3
+    from: mind-engine.invoke
+    to: collector.invoke
+    etype: sync-call
+    spec: "openapi:paths=/collect"
+    annotations: []
+  - id: e4
+    from: collector.emitted
+    to: bus.topic
+    etype: event
+    spec: "asyncapi:topic=events"
+    annotations: []
+  - id: e5
+    from: bus.topic
+    to: gateway.events
+    etype: event
+    spec: "asyncapi:topic=events"
+    annotations: []
+  - id: e6
+    from: gateway.api
+    to: auth-service.invoke
+    etype: sync-call
+    spec: "openapi:paths=/auth/verify"
+    annotations: []
+  - id: e7
+    from: gateway.api
+    to: otel-collector.invoke
+    etype: sync-call
+    spec: "openapi:paths=/otel/traces"
+    annotations: []
+  - id: e8
+    from: collector.store
+    to: mind-vault.vault
+    etype: data-store
+    annotations: []
+  - id: e9
+    from: auth-service.store
+    to: mind-vault.vault
+    etype: data-store
+    annotations: []
+  - id: e10
+    from: otel-collector.emitted
+    to: bus.topic
+    etype: event
+    spec: "asyncapi:topic=traces"
+    annotations: []
+  - id: e11
+    from: mind-engine.invoke
+    to: mind-vault.admin
+    etype: sync-call
+    spec: "openapi:paths=/admin/query"
+    annotations: []
+
