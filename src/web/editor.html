@@ -63,6 +63,7 @@ button:disabled { opacity: .4; cursor: default; }
 .node.sel .node-rect { stroke: #2563eb; stroke-width: 2; filter: drop-shadow(0 0 4px rgba(37,99,235,.25)); }
 .edge { opacity: .95; }
 .edge.sel { stroke-width: 3 !important; opacity: 1; }
+.edge:hover { opacity: 1 !important; stroke-width: 3.2 !important; }
 .edge.err { stroke: #dc2626 !important; stroke-dasharray: 6 4; opacity: 1; }
 .port { cursor: crosshair; }
 .port.halo { stroke: #f97316; stroke-width: 2.5; r: 9; filter: drop-shadow(0 0 4px rgba(249,115,22,.5)); }
@@ -240,6 +241,39 @@ function portPos(c, portId) {
   const col = Math.floor(idx / 2);
   return { x: c.x + (left ? 0 : NODE_W), y: c.y + 44 + col * 24 };
 }
+function parallelOffset(e) {
+  const f = e.from, t = e.to;
+  let off = 0;
+  // ① 同组件对扇开
+  const fc = f.split(".")[0], tc = t.split(".")[0];
+  const pairPeers = state.graph.edges.filter(x => {
+    const xf = x.from.split(".")[0], xt = x.to.split(".")[0];
+    return (xf === fc && xt === tc) || (xf === tc && xt === fc);
+  });
+  if (pairPeers.length > 1) {
+    const a = comp(fc), b = comp(tc);
+    const dist = a && b ? Math.abs(b.x - a.x) + Math.abs(b.y - a.y) : 600;
+    const spacing = Math.min(80, Math.max(36, dist / 12));
+    off += (pairPeers.findIndex(x => x.id === e.id) - (pairPeers.length - 1) / 2) * spacing;
+  }
+  // ② 同源端口扇开（多条边从同一口出发）
+  if (off === 0) {
+    const srcPeers = state.graph.edges.filter(x => x.from === f);
+    if (srcPeers.length > 1) {
+      const si = srcPeers.findIndex(x => x.id === e.id);
+      off += (si - (srcPeers.length - 1) / 2) * 46;
+    }
+  }
+  // ③ 同目标端口扇开（多条边汇入同一口）
+  if (off === 0) {
+    const dstPeers = state.graph.edges.filter(x => x.to === t);
+    if (dstPeers.length > 1) {
+      const di = dstPeers.findIndex(x => x.id === e.id);
+      off += (di - (dstPeers.length - 1) / 2) * 46;
+    }
+  }
+  return off;
+}
 function edgeGeom(e) {
   const [fc, fp] = e.from.split(".");
   const [tc, tp] = e.to.split(".");
@@ -247,7 +281,8 @@ function edgeGeom(e) {
   if (!c1 || !c2) return null;
   const p1 = portPos(c1, fp), p2 = portPos(c2, tp);
   const dx = Math.max(40, Math.abs(p2.x - p1.x) / 3);
-  const g = { x0: p1.x, y0: p1.y, cx0: p1.x + dx, cy0: p1.y, cx1: p2.x - dx, cy1: p2.y, x1: p2.x, y1: p2.y };
+  const off = parallelOffset(e);
+  const g = { x0: p1.x, y0: p1.y, cx0: p1.x + dx, cy0: p1.y + off, cx1: p2.x - dx, cy1: p2.y + off, x1: p2.x, y1: p2.y };
   g.d = "M " + g.x0 + " " + g.y0 + " C " + g.cx0 + " " + g.cy0 + ", " + g.cx1 + " " + g.cy1 + ", " + g.x1 + " " + g.y1;
   return g;
 }
