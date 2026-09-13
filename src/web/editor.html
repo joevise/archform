@@ -280,18 +280,59 @@ function edgeGeom(e) {
   const c1 = comp(fc), c2 = comp(tc);
   if (!c1 || !c2) return null;
   const p1 = portPos(c1, fp), p2 = portPos(c2, tp);
-  const dx = Math.max(40, Math.abs(p2.x - p1.x) / 3);
   const off = parallelOffset(e);
-  const g = { x0: p1.x, y0: p1.y, cx0: p1.x + dx, cy0: p1.y + off, cx1: p2.x - dx, cy1: p2.y + off, x1: p2.x, y1: p2.y };
-  g.d = "M " + g.x0 + " " + g.y0 + " C " + g.cx0 + " " + g.cy0 + ", " + g.cx1 + " " + g.cy1 + ", " + g.x1 + " " + g.y1;
+  const S = 30;
+  const i1 = c1.ports.findIndex(q => q.id === fp), i2 = c2.ports.findIndex(q => q.id === tp);
+  const s1 = (i1 % 2 === 0) ? "L" : "R", s2 = (i2 % 2 === 0) ? "L" : "R";
+  const sx1 = p1.x + (s1 === "R" ? S : -S) + (s1 === "R" ? Math.max(0, off * 0.3) : Math.min(0, off * 0.3));
+  const sx2 = p2.x + (s2 === "R" ? S : -S) + (s2 === "R" ? Math.max(0, off * 0.3) : Math.min(0, off * 0.3));
+  // 通道 Y：错开行走泳道间隙；同行走卡片下方间隙
+  const sameRow = Math.abs(c1.y - c2.y) < NODE_H / 2;
+  let cy;
+  if (sameRow) {
+    cy = Math.max(c1.y, c2.y) + NODE_H + 14 + Math.max(-14, Math.min(14, off * 0.4));
+  } else {
+    const top = c1.y < c2.y ? c1 : c2, bot = c1.y < c2.y ? c2 : c1;
+    const gapT = top.y + NODE_H, gapB = bot.y;
+    cy = gapT + (gapB - gapT) / 2 + off * 0.7;
+    cy = Math.max(gapT + 8, Math.min(gapB - 8, cy));
+  }
+  const pts = [p1, { x: sx1, y: p1.y }, { x: sx1, y: cy }, { x: sx2, y: cy }, { x: sx2, y: p2.y }, p2];
+  const g = { pts: pts };
+  g.d = roundedPath(pts, 10);
   return g;
 }
+function roundedPath(pts, r) {
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  let d = "M " + pts[0].x + " " + pts[0].y;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i], a = pts[i - 1], b = pts[i + 1];
+    const l1 = dist(a, p) || 1, l2 = dist(p, b) || 1;
+    const rr = Math.min(r, l1 / 2, l2 / 2);
+    const u1 = { x: (p.x - a.x) / l1, y: (p.y - a.y) / l1 };
+    const u2 = { x: (b.x - p.x) / l2, y: (b.y - p.y) / l2 };
+    const pin = { x: p.x - u1.x * rr, y: p.y - u1.y * rr };
+    const pout = { x: p.x + u2.x * rr, y: p.y + u2.y * rr };
+    d += " L " + pin.x.toFixed(1) + " " + pin.y.toFixed(1) + " Q " + p.x.toFixed(1) + " " + p.y.toFixed(1) + " " + pout.x.toFixed(1) + " " + pout.y.toFixed(1);
+  }
+  const last = pts[pts.length - 1];
+  d += " L " + last.x.toFixed(1) + " " + last.y.toFixed(1);
+  return d;
+}
 function bezPoint(g, t) {
-  const u = 1 - t;
-  return {
-    x: u*u*u*g.x0 + 3*u*u*t*g.cx0 + 3*u*t*t*g.cx1 + t*t*t*g.x1,
-    y: u*u*u*g.y0 + 3*u*u*t*g.cy0 + 3*u*t*t*g.cy1 + t*t*t*g.y1
-  };
+  const pts = g.pts || [];
+  if (pts.length < 2) return { x: 0, y: 0 };
+  const segs = []; let total = 0;
+  for (let i = 1; i < pts.length; i++) { const L = Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y); segs.push(L); total += L; }
+  let d = Math.max(0, Math.min(1, t)) * total;
+  for (let i = 0; i < segs.length; i++) {
+    if (d <= segs[i] || i === segs.length - 1) {
+      const k = segs[i] ? d / segs[i] : 0;
+      return { x: pts[i].x + (pts[i+1].x - pts[i].x) * Math.min(k, 1), y: pts[i].y + (pts[i+1].y - pts[i].y) * Math.min(k, 1) };
+    }
+    d -= segs[i];
+  }
+  return pts[pts.length - 1];
 }
 function effAnn(e) { return [...(state.graph.defaults.edges || []), ...(e.annotations || [])]; }
 function hasDim(e, dim) { return effAnn(e).some(n => state.graph.policies[n] && state.graph.policies[n].ptype === dim); }
@@ -333,6 +374,7 @@ function renderCanvas() {
   const bt = el("text", { x: BAND_X + BAND_W / 2, y: LANE_TOP + 22, "text-anchor": "middle", "font-size": 12, fill: "#7c8aa0", style: "user-select:none" }, bg);
   bt.textContent = BAND_NAME;
 
+  const eLayer = el("g", {}, vp);
   const nLayer = el("g", {}, vp);
   for (const c of state.graph.components) {
     const g = el("g", { "class": "node" + (state.sel && state.sel.type === "comp" && state.sel.id === c.id ? " sel" : ""), "data-comp": c.id, style: "cursor:move" }, nLayer);
@@ -361,7 +403,6 @@ function renderCanvas() {
       t.textContent = "sandbox: " + (sb || "缺失");
     }
   }
-  const eLayer = el("g", {}, vp);
   for (const e of state.graph.edges) {
     const g = edgeGeom(e);
     if (!g) continue;
