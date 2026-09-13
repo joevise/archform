@@ -23,6 +23,16 @@ pub struct YamlReq {
     yaml: String,
 }
 
+#[derive(Deserialize)]
+pub struct SerializeReq {
+    graph: Arch,
+}
+
+#[derive(Serialize)]
+pub struct SerializeResp {
+    yaml: String,
+}
+
 #[derive(Serialize)]
 pub struct ArchResp {
     yaml: String,
@@ -106,6 +116,12 @@ async fn put_arch(State(st): State<Arc<AppState>>, Json(req): Json<YamlReq>) -> 
     }
 }
 
+async fn post_serialize(Json(req): Json<SerializeReq>) -> Json<SerializeResp> {
+    Json(SerializeResp {
+        yaml: model::to_yaml(&req.graph),
+    })
+}
+
 async fn post_validate(Json(req): Json<YamlReq>) -> Json<ValidateResp> {
     match model::parse(&req.yaml) {
         Err(e) => Json(ValidateResp {
@@ -166,6 +182,7 @@ pub fn router(dir: PathBuf) -> Router {
         .route("/", get(index))
         .route("/api/arch", get(get_arch))
         .route("/api/arch", put(put_arch))
+        .route("/api/serialize", post(post_serialize))
         .route("/api/validate", post(post_validate))
         .route("/api/simulate", post(post_simulate))
         .route("/api/generate", post(post_generate))

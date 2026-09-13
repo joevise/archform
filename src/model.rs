@@ -10,7 +10,15 @@ pub const CONTRACT_TYPES: [&str; 6] = [
     "stream",
 ];
 
-pub const KINDS: [&str; 6] = ["gateway", "service", "ai-runtime", "datastore", "bus", "app"];
+pub const KINDS: [&str; 7] = [
+    "gateway",
+    "service",
+    "ai-runtime",
+    "datastore",
+    "bus",
+    "app",
+    "crosscut",
+];
 
 pub fn is_contract(t: &str) -> bool {
     CONTRACT_TYPES.contains(&t)
@@ -40,7 +48,7 @@ pub fn contract_zh(t: &str) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Arch {
     pub version: u32,
     #[serde(default)]
@@ -53,7 +61,7 @@ pub struct Arch {
     pub edges: Vec<Edge>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Policy {
     pub ptype: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -62,7 +70,7 @@ pub struct Policy {
     pub pdp: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Defaults {
     #[serde(default)]
     pub edges: Vec<String>,
@@ -70,9 +78,11 @@ pub struct Defaults {
     pub nodes: HashMap<String, HashMap<String, String>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Component {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub kind: String,
     pub x: f64,
     pub y: f64,
@@ -82,7 +92,7 @@ pub struct Component {
     pub ports: Vec<Port>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Port {
     pub id: String,
     pub ptype: String,
@@ -92,7 +102,7 @@ pub struct Port {
     pub spec: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Edge {
     pub id: String,
     pub from: String,
@@ -137,7 +147,14 @@ pub fn default_ports(kind: &str) -> Vec<Port> {
         ],
         "bus" => vec![p("topic", "event", Some("server"))],
         "app" => vec![p("backend", "sync-call", None), p("ui", "stream", None)],
+        "crosscut" => vec![p("invoke", "sync-call", Some("server"))],
         _ => vec![p("invoke", "sync-call", Some("server"))],
+    }
+}
+
+impl Component {
+    pub fn display_name(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.id)
     }
 }
 

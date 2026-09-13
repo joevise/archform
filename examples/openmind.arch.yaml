@@ -15,9 +15,10 @@ defaults:
       sandbox: seccomp
 components:
   - id: gateway
+    name: API网关·五扇门
     kind: gateway
-    x: 80
-    y: 300
+    x: 60
+    y: 250
     annotations: {}
     ports:
       - id: api
@@ -29,10 +30,12 @@ components:
         ptype: stream
         role: server
   - id: mind-engine
+    name: AI运行时 MindEngine
     kind: ai-runtime
-    x: 520
-    y: 120
-    annotations: {}
+    x: 480
+    y: 430
+    annotations:
+      sandbox: seccomp
     ports:
       - id: invoke
         ptype: sync-call
@@ -44,9 +47,10 @@ components:
       - id: session
         ptype: data-store
   - id: mind-vault
+    name: 知识库 MindVault
     kind: datastore
-    x: 980
-    y: 300
+    x: 480
+    y: 610
     annotations: {}
     ports:
       - id: vault
@@ -56,9 +60,10 @@ components:
         ptype: sync-call
         role: server
   - id: collector
+    name: 采集服务
     kind: service
-    x: 520
-    y: 480
+    x: 900
+    y: 430
     annotations: {}
     ports:
       - id: invoke
@@ -69,18 +74,20 @@ components:
       - id: store
         ptype: data-store
   - id: bus
+    name: 事件总线
     kind: bus
-    x: 80
-    y: 620
+    x: 60
+    y: 430
     annotations: {}
     ports:
       - id: topic
         ptype: event
         role: server
   - id: auth-service
-    kind: service
-    x: 980
-    y: 60
+    name: 鉴权决策 PDP
+    kind: crosscut
+    x: 1280
+    y: 250
     annotations: {}
     ports:
       - id: invoke
@@ -91,9 +98,10 @@ components:
       - id: store
         ptype: data-store
   - id: otel-collector
-    kind: service
-    x: 980
-    y: 540
+    name: 观测收集器
+    kind: crosscut
+    x: 1280
+    y: 550
     annotations: {}
     ports:
       - id: invoke
@@ -167,4 +175,3 @@ edges:
     etype: sync-call
     spec: "openapi:paths=/admin/query"
     annotations: []
-

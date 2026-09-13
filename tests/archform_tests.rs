@@ -344,3 +344,58 @@ edges:
     assert!(r.hops <= 2, "hops bounded, got {}", r.hops);
     assert!(r.steps.len() <= 16, "steps bounded (no infinite loop): {}", r.steps.len());
 }
+
+#[test]
+fn serialize_roundtrip() {
+    let a = parse(SAMPLE);
+    let yaml = model::to_yaml(&a);
+    let b = parse(&yaml);
+    assert_eq!(a, b, "graph -> yaml -> parse must be identity");
+}
+
+#[test]
+fn component_name_optional() {
+    let a = parse("version: 1\ncomponents:\n  - id: x\n    kind: service\n    x: 0\n    y: 0\nedges: []\n");
+    assert!(a.components[0].name.is_none());
+    assert_eq!(a.components[0].display_name(), "x", "display falls back to id");
+    let b = parse(SAMPLE);
+    assert_eq!(b.component("gateway").unwrap().name.as_deref(), Some("API网关·五扇门"));
+    assert_eq!(b.component("gateway").unwrap().display_name(), "API网关·五扇门");
+}
+
+#[test]
+fn serialize_policies_defaults() {
+    let a = parse(SAMPLE);
+    let yaml = model::to_yaml(&a);
+    let b = parse(&yaml);
+    assert_eq!(a.policies, b.policies, "policies preserved");
+    assert_eq!(a.defaults, b.defaults, "defaults preserved");
+    assert_eq!(b.policies["auth-jwt"].ptype, "auth");
+    assert_eq!(b.policies["auth-jwt"].scheme.as_deref(), Some("jwt-bearer"));
+    assert_eq!(b.policies["auth-jwt"].pdp.as_deref(), Some("auth-service"));
+    assert_eq!(b.defaults.edges, vec!["auth-jwt".to_string(), "otel".to_string()]);
+    assert_eq!(
+        b.defaults.nodes["ai-runtime"]["sandbox"], "seccomp",
+        "defaults.nodes inheritance preserved"
+    );
+}
+
+#[test]
+fn sample_crosscut_kind() {
+    let a = parse(SAMPLE);
+    let mut cc: Vec<&str> = a
+        .components
+        .iter()
+        .filter(|c| c.kind == "crosscut")
+        .map(|c| c.id.as_str())
+        .collect();
+    cc.sort();
+    assert_eq!(cc, vec!["auth-service", "otel-collector"]);
+    assert!(model::KINDS.contains(&"crosscut"));
+    let (ok, _, fail, errs) = validate::validate(&a);
+    for e in &errs {
+        eprintln!("[{}] {}: {}", e.rule, e.element, e.message);
+    }
+    assert!(ok, "sample with crosscut kinds must validate green");
+    assert_eq!(fail, 0);
+}

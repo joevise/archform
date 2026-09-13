@@ -67,6 +67,22 @@ button:disabled { opacity: .5; cursor: default; }
 #verdict .sim-err-line { color: #f87171; padding: 2px 0; }
 #toast { position: fixed; left: 50%; bottom: 180px; transform: translateX(-50%); background: #1f2937; border: 1px solid #ef4444; color: #fca5a5; padding: 8px 16px; border-radius: 8px; font-size: 13px; display: none; z-index: 60; }
 #toast.show { display: block; }
+#legend { position: absolute; right: 12px; top: 12px; background: rgba(17,24,39,.82); border: 1px solid #374151; border-radius: 8px; padding: 8px 12px; font-size: 12px; z-index: 10; }
+#legend .lg-head { color: #9ca3af; font-size: 11px; margin-bottom: 5px; }
+#legend .lg-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; color: #d1d5db; cursor: default; }
+#legend .lg-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+#policy-drawer { position: absolute; right: 0; top: 0; bottom: 0; width: 300px; background: #0f172a; border-left: 2px solid #2563eb; display: none; flex-direction: column; z-index: 30; font-size: 13px; }
+#policy-drawer.open { display: flex; }
+#policy-drawer .pd-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #1f2937; }
+#policy-drawer .pd-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+#policy-drawer h4 { font-size: 12px; color: #6b7280; margin: 12px 0 6px; }
+.pd-row { border: 1px solid #1f2937; border-radius: 8px; padding: 8px; margin-bottom: 8px; background: #111827; }
+.pd-row input, .pd-row select { width: 100%; background: #0b1220; border: 1px solid #374151; color: #e5e7eb; border-radius: 6px; padding: 5px 8px; font-size: 12px; margin-bottom: 5px; }
+.pd-row .pd-del { width: 100%; background: #7f1d1d; border-color: #b91c1c; font-size: 11px; padding: 3px 0; }
+.pd-def-row { display: block; padding: 3px 0; color: #d1d5db; cursor: pointer; }
+.ann-row { display: flex; align-items: center; gap: 7px; padding: 4px 0; border-bottom: 1px solid #1f2937; }
+.ann-row .ann-tag { margin-left: auto; font-size: 10px; color: #6b7280; }
+.ann-row.inherited .ann-name { color: #6b7280; }
 </style>
 </head>
 <body>
@@ -79,6 +95,7 @@ button:disabled { opacity: .5; cursor: default; }
     <span class="spacer"></span>
     <button id="btn-sim">仿真 ▶</button>
     <button id="btn-gen">生成⚡</button>
+    <button id="btn-policy">策略</button>
     <button id="btn-yaml">YAML</button>
   </div>
   <div id="lensbar">
@@ -92,9 +109,20 @@ button:disabled { opacity: .5; cursor: default; }
     <div id="palette"><h3>积木盒</h3></div>
     <div id="canvas-wrap">
       <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="legend"></div>
       <div id="zoomctl"><span id="zoom-label">100%</span><button id="zoom-reset">复位</button></div>
     </div>
     <div id="inspector"><h3>检查器</h3><div id="insp-body" style="color:#6b7280">点击组件或边查看详情</div></div>
+    <div id="policy-drawer">
+      <div class="pd-head"><b>策略配置</b><span class="spacer"></span><button id="pd-save">保存</button><button id="pd-close">关闭</button></div>
+      <div class="pd-body">
+        <h4>策略列表（policies）</h4>
+        <div id="pd-list"></div>
+        <button id="pd-add">+ 新增策略</button>
+        <h4>默认继承（defaults.edges）</h4>
+        <div id="pd-defaults"></div>
+      </div>
+    </div>
   </div>
   <div id="yaml-drawer">
     <div class="yd-head"><span>archform.yaml（可编辑）</span><span class="spacer"></span><button id="btn-apply">应用</button><button id="btn-close-yaml">关闭</button></div>
@@ -110,16 +138,50 @@ button:disabled { opacity: .5; cursor: default; }
 const NS = "http://www.w3.org/2000/svg";
 const COLORS = {"sync-call":"#dc2626","event":"#f59e0b","data-store":"#7c3aed","tool-call":"#0ea5e9","model-io":"#10b981","stream":"#ec4899"};
 const ZH = {"sync-call":"同步调用","event":"异步事件","data-store":"数据存储","tool-call":"工具调用","model-io":"模型I/O","stream":"流式"};
+const ZH_SHORT = {"sync-call":"同步","event":"事件","data-store":"数据","tool-call":"工具","model-io":"模型","stream":"流式"};
+const KIND_ZH = {"gateway":"网关","service":"工程服务","ai-runtime":"AI运行时","datastore":"数据层","bus":"事件总线","app":"应用","crosscut":"横切服务"};
+const PTYPE_ZH = {"auth":"鉴权","trace":"观测","crypto":"加密"};
+const LEGEND_HINT = {
+  "sync-call":"请求-响应式同步调用",
+  "event":"异步消息/事件投递",
+  "data-store":"数据读写存储",
+  "tool-call":"AI 调用外部工具",
+  "model-io":"模型推理输入输出",
+  "stream":"流式推送（SSE/WebSocket）"
+};
 const KIND_PORTS = {
   "gateway": [["api","sync-call","server"],["events","event",null],["chat","stream","server"]],
   "service": [["invoke","sync-call","server"],["emitted","event",null],["store","data-store",null]],
   "ai-runtime": [["invoke","sync-call","server"],["llm","model-io",null],["tools","tool-call",null],["session","data-store",null]],
   "datastore": [["vault","data-store","server"],["admin","sync-call","server"]],
   "bus": [["topic","event","server"]],
-  "app": [["backend","sync-call",null],["ui","stream",null]]
+  "app": [["backend","sync-call",null],["ui","stream",null]],
+  "crosscut": [["invoke","sync-call","server"]]
 };
 const KINDS = Object.keys(KIND_PORTS);
 const NODE_W = 260, NODE_H = 120;
+
+/* 泳道布局：4 条横向泳道 + 右侧横切竖带 */
+const LANE_H = 180, LANE_TOP = 40;
+const LANES = [
+  { name: "应用生态层", kinds: ["app"] },
+  { name: "接入层", kinds: ["gateway"] },
+  { name: "平台服务层", kinds: ["service", "ai-runtime", "bus"] },
+  { name: "数据层", kinds: ["datastore"] }
+];
+const BAND_X = 1300, BAND_W = 220, BAND_NAME = "横切带";
+const WORLD_H = LANE_TOP * 2 + LANES.length * LANE_H;
+function laneOf(kind) { for (let i = 0; i < LANES.length; i++) if (LANES[i].kinds.includes(kind)) return i; return -1; }
+function laneTop(i) { return LANE_TOP + i * LANE_H; }
+function snapPos(kind, x, y) {
+  if (kind === "crosscut") {
+    return { x: Math.round(BAND_X + (BAND_W - NODE_W) / 2), y: Math.max(LANE_TOP + 6, Math.min(Math.round(y), WORLD_H - LANE_TOP - NODE_H - 6)) };
+  }
+  const nx = Math.max(6, Math.min(Math.round(x), BAND_X - NODE_W - 12));
+  const li = laneOf(kind);
+  if (li >= 0) return { x: nx, y: Math.round(laneTop(li) + (LANE_H - NODE_H) / 2) };
+  return { x: nx, y: Math.max(LANE_TOP + 6, Math.min(Math.round(y), WORLD_H - LANE_TOP - NODE_H - 6)) };
+}
 
 let state = { graph: null, yaml: "", errors: [], lens: "拓扑", sel: null, zoom: 1, pan: {x: 0, y: 0} };
 let drag = null;       // {mode:'pan'|'node'|'connect'|'palette', ...}
@@ -138,63 +200,6 @@ function el(tag, attrs, parent) {
 
 function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-/* ---------- YAML dump (schema-specific) ---------- */
-function yq(v) { return JSON.stringify(String(v)); }
-function dumpYaml(g) {
-  let s = "version: " + (g.version || 1) + "\n";
-  s += "policies:";
-  const pnames = Object.keys(g.policies || {});
-  if (!pnames.length) s += " {}\n"; else {
-    s += "\n";
-    for (const n of pnames) {
-      const p = g.policies[n];
-      s += "  " + yq(n) + ":\n    ptype: " + yq(p.ptype) + "\n";
-      if (p.scheme != null) s += "    scheme: " + yq(p.scheme) + "\n";
-      if (p.pdp != null) s += "    pdp: " + yq(p.pdp) + "\n";
-    }
-  }
-  s += "defaults:\n  edges: [" + (g.defaults.edges || []).map(yq).join(", ") + "]\n";
-  const nk = Object.keys(g.defaults.nodes || {});
-  if (!nk.length) s += "  nodes: {}\n"; else {
-    s += "  nodes:\n";
-    for (const k of nk) {
-      s += "    " + yq(k) + ":\n";
-      for (const a in g.defaults.nodes[k]) s += "      " + yq(a) + ": " + yq(g.defaults.nodes[k][a]) + "\n";
-    }
-  }
-  s += "components:";
-  if (!g.components.length) s += " []\n"; else {
-    s += "\n";
-    for (const c of g.components) {
-      s += "  - id: " + yq(c.id) + "\n    kind: " + yq(c.kind) + "\n    x: " + Math.round(c.x) + "\n    y: " + Math.round(c.y) + "\n";
-      const ak = Object.keys(c.annotations || {});
-      if (!ak.length) s += "    annotations: {}\n"; else {
-        s += "    annotations:\n";
-        for (const a of ak) s += "      " + yq(a) + ": " + yq(c.annotations[a]) + "\n";
-      }
-      s += "    ports:";
-      if (!c.ports.length) s += " []\n"; else {
-        s += "\n";
-        for (const p of c.ports) {
-          s += "      - id: " + yq(p.id) + "\n        ptype: " + yq(p.ptype) + "\n";
-          if (p.role != null) s += "        role: " + yq(p.role) + "\n";
-          if (p.spec != null) s += "        spec: " + yq(p.spec) + "\n";
-        }
-      }
-    }
-  }
-  s += "edges:";
-  if (!g.edges.length) s += " []\n"; else {
-    s += "\n";
-    for (const e of g.edges) {
-      s += "  - id: " + yq(e.id) + "\n    from: " + yq(e.from) + "\n    to: " + yq(e.to) + "\n    etype: " + yq(e.etype) + "\n";
-      if (e.spec != null) s += "    spec: " + yq(e.spec) + "\n";
-      s += "    annotations: [" + (e.annotations || []).map(yq).join(", ") + "]\n";
-    }
-  }
-  return s;
-}
-
 /* ---------- API ---------- */
 async function api(method, url, body) {
   const r = await fetch(url, { method, headers: {"Content-Type":"application/json"}, body: body ? JSON.stringify(body) : undefined });
@@ -202,7 +207,8 @@ async function api(method, url, body) {
 }
 
 async function sync() {
-  state.yaml = dumpYaml(state.graph);
+  const s = await api("POST", "/api/serialize", { graph: state.graph });
+  state.yaml = s.yaml;
   const r = await api("PUT", "/api/arch", { yaml: state.yaml });
   state.errors = r.errors || [];
   if (r.graph) state.graph = r.graph;
@@ -275,6 +281,16 @@ function renderCanvas() {
   const vp = el("g", { transform: "translate(" + state.pan.x + "," + state.pan.y + ") scale(" + state.zoom + ")" }, svg);
   const errs = errElements();
 
+  const bg = el("g", {}, vp);
+  LANES.forEach((L, i) => {
+    el("rect", { x: 0, y: laneTop(i), width: BAND_X, height: LANE_H, fill: i % 2 === 0 ? "#fafafa" : "#f5f5f5", stroke: "#d4d4d4", "stroke-width": 1, "stroke-dasharray": "6 4" }, bg);
+    const lt = el("text", { x: 14, y: laneTop(i) + 22, "font-size": 14, fill: "#9ca3af", style: "user-select:none" }, bg);
+    lt.textContent = L.name;
+  });
+  el("rect", { x: BAND_X, y: LANE_TOP, width: BAND_W, height: LANES.length * LANE_H, fill: "#f5f5f5", stroke: "#d4d4d4", "stroke-width": 1, "stroke-dasharray": "6 4" }, bg);
+  const bt = el("text", { x: BAND_X + BAND_W / 2, y: LANE_TOP + 22, "text-anchor": "middle", "font-size": 14, fill: "#9ca3af", style: "user-select:none" }, bg);
+  bt.textContent = BAND_NAME;
+
   const eLayer = el("g", {}, vp);
   for (const e of state.graph.edges) {
     const g = edgeGeom(e);
@@ -300,10 +316,14 @@ function renderCanvas() {
     const g = el("g", { "class": "node" + (state.sel && state.sel.type === "comp" && state.sel.id === c.id ? " sel" : ""), "data-comp": c.id, style: "cursor:move" }, nLayer);
     el("rect", { x: c.x, y: c.y, width: NODE_W, height: NODE_H, rx: 12, "class": "node-rect", "stroke-width": errs.comps.has(c.id) ? 2.5 : 1.5, stroke: errs.comps.has(c.id) ? "#ef4444" : "#4b5563" }, g);
     const title = el("text", { x: c.x + 14, y: c.y + 26, "font-size": 14, fill: "#f3f4f6", "font-weight": "600", style: "user-select:none" }, g);
-    title.textContent = c.id;
-    el("rect", { x: c.x + NODE_W - 86, y: c.y + 10, width: 76, height: 18, rx: 9, fill: "#374151" }, g);
-    const kb = el("text", { x: c.x + NODE_W - 48, y: c.y + 23, "text-anchor": "middle", "font-size": 10, fill: "#d1d5db", style: "user-select:none" }, g);
-    kb.textContent = c.kind;
+    title.textContent = c.name || c.id;
+    if (c.name) {
+      const sub = el("text", { x: c.x + 14, y: c.y + 40, "font-size": 9, fill: "#9ca3af", style: "user-select:none" }, g);
+      sub.textContent = c.id;
+    }
+    el("rect", { x: c.x + NODE_W - 96, y: c.y + 10, width: 86, height: 18, rx: 9, fill: "#374151" }, g);
+    const kb = el("text", { x: c.x + NODE_W - 53, y: c.y + 23, "text-anchor": "middle", "font-size": 10, fill: "#d1d5db", style: "user-select:none" }, g);
+    kb.textContent = KIND_ZH[c.kind] || c.kind;
     c.ports.forEach((p, idx) => {
       const pos = portPos(c, p.id);
       const circ = el("circle", { cx: pos.x, cy: pos.y, r: 6, fill: COLORS[p.ptype] || "#6b7280", "class": "port", "data-comp": c.id, "data-port": p.id, "data-ptype": p.ptype }, g);
@@ -327,38 +347,66 @@ function renderInspector() {
   if (state.sel.type === "comp") {
     const c = comp(state.sel.id);
     if (!c) { state.sel = null; b.innerHTML = ""; return; }
-    let ports = c.ports.map(p => '<div class="portrow"><span class="pdot" style="background:' + (COLORS[p.ptype]||"#6b7280") + '"></span><span>' + esc(p.id) + '</span><span style="color:#6b7280;margin-left:auto">' + esc(p.ptype) + (p.role ? " · " + esc(p.role) : "") + '</span></div>').join("");
+    let ports = c.ports.map(p => '<div class="portrow"><span class="pdot" style="background:' + (COLORS[p.ptype]||"#6b7280") + '"></span><span>' + esc(p.id) + '</span><span style="color:#6b7280;margin-left:auto">' + esc(ZH[p.ptype]||p.ptype) + (p.role ? " · " + esc(p.role) : "") + '</span></div>').join("");
+    let sandboxField = "";
+    if (c.kind === "ai-runtime") {
+      const sb = (c.annotations && c.annotations.sandbox) || "";
+      sandboxField = '<label>sandbox</label><select id="insp-sandbox"><option value="">无</option>' +
+        ["container", "seccomp"].map(s => '<option value="' + s + '"' + (sb === s ? " selected" : "") + '>' + s + '</option>').join("") + '</select>';
+    }
     b.innerHTML =
       '<label>组件 ID</label><input id="insp-id" value="' + esc(c.id) + '">' +
-      '<label>类型</label><input value="' + esc(c.kind) + '" disabled>' +
-      '<label>sandbox 注解</label><input id="insp-sandbox" value="' + esc((c.annotations && c.annotations.sandbox) || "") + '" placeholder="container|seccomp|off">' +
+      '<label>名称</label><input id="insp-name" value="' + esc(c.name || "") + '" placeholder="缺省显示 id">' +
+      '<label>类型</label><input value="' + esc(KIND_ZH[c.kind] || c.kind) + ' · ' + esc(c.kind) + '" disabled>' +
+      sandboxField +
       '<label>端口 (' + c.ports.length + ')</label>' + ports +
       '<button class="danger" id="insp-del">删除组件</button>';
     $("insp-id").onchange = ev => { renameComp(c.id, ev.target.value.trim()); };
-    $("insp-sandbox").onchange = ev => {
-      const v = ev.target.value.trim();
-      if (!c.annotations) c.annotations = {};
-      if (v) c.annotations.sandbox = v; else delete c.annotations.sandbox;
-      sync();
-    };
+    $("insp-name").onchange = ev => { const v = ev.target.value.trim(); c.name = v || null; sync(); };
+    if (c.kind === "ai-runtime") {
+      $("insp-sandbox").onchange = ev => {
+        const v = ev.target.value;
+        if (!c.annotations) c.annotations = {};
+        if (v) c.annotations.sandbox = v; else delete c.annotations.sandbox;
+        sync();
+      };
+    }
     $("insp-del").onclick = () => { if (confirm("删除组件 " + c.id + " 及其相连的边？")) { state.graph.edges = state.graph.edges.filter(e => !e.from.startsWith(c.id + ".") && !e.to.startsWith(c.id + ".")); state.graph.components = state.graph.components.filter(x => x.id !== c.id); state.sel = null; sync(); } };
   } else {
     const e = edgeById(state.sel.id);
     if (!e) { state.sel = null; b.innerHTML = ""; return; }
+    const polNames = Object.keys(state.graph.policies || {});
+    let annHtml = '<label>生效注解</label>';
+    if (!polNames.length) annHtml += '<div style="color:#6b7280;font-size:12px;padding:4px 0">无策略（点顶栏「策略」配置）</div>';
+    annHtml += polNames.map(n => {
+      const explicit = (e.annotations || []).includes(n);
+      const inherited = (state.graph.defaults.edges || []).includes(n);
+      const p = state.graph.policies[n];
+      const tag = PTYPE_ZH[p.ptype] || p.ptype;
+      if (inherited && !explicit) {
+        return '<div class="ann-row inherited"><input type="checkbox" checked disabled><span class="ann-name">' + esc(n) + '</span><span class="ann-tag">默认 · ' + esc(tag) + '</span></div>';
+      }
+      return '<div class="ann-row"><input type="checkbox" data-ann="' + esc(n) + '"' + (explicit ? " checked" : "") + '><span class="ann-name">' + esc(n) + '</span><span class="ann-tag">' + esc(tag) + '</span></div>';
+    }).join("");
     b.innerHTML =
       '<label>边 ID</label><input id="insp-id" value="' + esc(e.id) + '">' +
       '<label>契约类型</label><input value="' + esc(e.etype) + " · " + esc(ZH[e.etype]||"") + '" disabled>' +
       '<label>from</label><input value="' + esc(e.from) + '" disabled>' +
       '<label>to</label><input value="' + esc(e.to) + '" disabled>' +
       '<label>spec</label><input id="insp-spec" value="' + esc(e.spec || "") + '" placeholder="openapi:paths=/x 或 asyncapi:topic=t">' +
-      '<label>注解（逗号分隔，叠加 defaults.edges）</label><input id="insp-ann" value="' + esc((e.annotations||[]).join(", ")) + '">' +
+      annHtml +
       '<button class="danger" id="insp-del">删除边</button>';
     $("insp-id").onchange = ev => {
       const v = ev.target.value.trim();
       if (v && !edgeById(v) && !comp(v)) { e.id = v; state.sel.id = v; sync(); }
     };
     $("insp-spec").onchange = ev => { e.spec = ev.target.value.trim() || null; sync(); };
-    $("insp-ann").onchange = ev => { e.annotations = ev.target.value.split(",").map(s => s.trim()).filter(Boolean); sync(); };
+    b.querySelectorAll("input[data-ann]").forEach(cb => cb.onchange = () => {
+      const n = cb.dataset.ann;
+      e.annotations = (e.annotations || []).filter(x => x !== n);
+      if (cb.checked) e.annotations.push(n);
+      sync();
+    });
     $("insp-del").onclick = () => { if (confirm("删除边 " + e.id + "？")) { state.graph.edges = state.graph.edges.filter(x => x.id !== e.id); state.sel = null; sync(); } };
   }
 }
@@ -408,17 +456,25 @@ function renderPalette() {
     const d = document.createElement("div");
     d.className = "pal-item";
     d.dataset.kind = k;
-    d.innerHTML = esc(k) + '<span class="kind-badge">' + KIND_PORTS[k].length + ' 口</span>';
-    d.onmousedown = ev => { ev.preventDefault(); drag = { mode: "palette", kind: k }; const gh = $("ghost"); gh.textContent = k; gh.style.display = "block"; gh.style.left = ev.clientX + 10 + "px"; gh.style.top = ev.clientY + 10 + "px"; };
+    d.title = "自带端口：" + KIND_PORTS[k].map(pp => pp[0] + "(" + (ZH_SHORT[pp[1]] || pp[1]) + ")").join(" ");
+    d.innerHTML = esc(KIND_ZH[k] || k) + '<span class="kind-badge">' + KIND_PORTS[k].length + ' 口</span>';
+    d.onmousedown = ev => { ev.preventDefault(); drag = { mode: "palette", kind: k }; const gh = $("ghost"); gh.textContent = KIND_ZH[k] || k; gh.style.display = "block"; gh.style.left = ev.clientX + 10 + "px"; gh.style.top = ev.clientY + 10 + "px"; };
     pal.appendChild(d);
   }
+}
+
+function renderLegend() {
+  const l = $("legend");
+  l.innerHTML = '<div class="lg-head">契约图例</div>' + Object.keys(COLORS).map(k =>
+    '<div class="lg-row" title="' + esc(LEGEND_HINT[k] || "") + '"><span class="lg-dot" style="background:' + COLORS[k] + '"></span>' + esc(ZH[k] || k) + '</div>').join("");
 }
 
 function addComponent(kind, pt) {
   const taken = new Set(state.graph.components.map(c => c.id));
   const id = nextId(kind === "service" ? "svc" : kind, taken);
   const ports = KIND_PORTS[kind].map(([pid, ptype, role]) => ({ id: pid, ptype, role }));
-  state.graph.components.push({ id, kind, x: Math.round(pt.x - NODE_W/2), y: Math.round(pt.y - 30), annotations: {}, ports });
+  const sp = snapPos(kind, pt.x - NODE_W / 2, pt.y - 30);
+  state.graph.components.push({ id, name: null, kind, x: sp.x, y: sp.y, annotations: {}, ports });
   state.sel = { type: "comp", id };
   sync();
 }
@@ -477,8 +533,9 @@ window.addEventListener("mousemove", ev => {
     renderCanvas(); renderTop();
   } else if (drag.mode === "node") {
     const pt = toSvgPoint(ev);
-    drag.comp.x = Math.round(drag.ox + pt.x - drag.start.x);
-    drag.comp.y = Math.round(drag.oy + pt.y - drag.start.y);
+    const sp = snapPos(drag.comp.kind, drag.ox + pt.x - drag.start.x, drag.oy + pt.y - drag.start.y);
+    drag.comp.x = sp.x;
+    drag.comp.y = sp.y;
     drag.moved = true;
     renderCanvas();
   } else if (drag.mode === "connect" && tempLine) {
@@ -578,6 +635,86 @@ $("btn-gen").onclick = async () => {
   $("gen-modal").classList.add("open");
 };
 $("gen-close").onclick = () => $("gen-modal").classList.remove("open");
+
+/* ---------- 策略抽屉 ---------- */
+let pdState = null;
+
+function openPolicyDrawer() {
+  pdState = {
+    policies: Object.entries(state.graph.policies || {}).map(([name, p]) => ({ name, ptype: p.ptype, scheme: p.scheme || "", pdp: p.pdp || "" })),
+    defaults: [...(state.graph.defaults.edges || [])]
+  };
+  renderPolicyDrawer();
+  $("policy-drawer").classList.add("open");
+}
+
+function renderPolicyDrawer() {
+  const list = $("pd-list");
+  list.innerHTML = "";
+  pdState.policies.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "pd-row";
+    row.innerHTML =
+      '<input class="pd-name" placeholder="名称" value="' + esc(p.name) + '">' +
+      '<select class="pd-ptype">' + ["auth", "trace", "crypto"].map(t => '<option value="' + t + '"' + (p.ptype === t ? " selected" : "") + '>' + t + ' · ' + (PTYPE_ZH[t] || t) + '</option>').join("") + '</select>' +
+      '<input class="pd-scheme" placeholder="scheme（如 jwt-bearer）" value="' + esc(p.scheme) + '">' +
+      '<select class="pd-pdp"><option value="">pdp: 无</option>' +
+      state.graph.components.map(c => '<option value="' + esc(c.id) + '"' + (p.pdp === c.id ? " selected" : "") + '>' + esc(c.name || c.id) + '</option>').join("") + '</select>' +
+      '<button class="pd-del">删除</button>';
+    row.querySelector(".pd-name").onchange = ev => {
+      const old = p.name;
+      p.name = ev.target.value;
+      const di = pdState.defaults.indexOf(old);
+      if (di >= 0) pdState.defaults[di] = p.name;
+      renderPolicyDrawer();
+    };
+    row.querySelector(".pd-ptype").onchange = ev => { p.ptype = ev.target.value; };
+    row.querySelector(".pd-scheme").oninput = ev => { p.scheme = ev.target.value; };
+    row.querySelector(".pd-pdp").onchange = ev => { p.pdp = ev.target.value; };
+    row.querySelector(".pd-del").onclick = () => {
+      pdState.policies.splice(i, 1);
+      pdState.defaults = pdState.defaults.filter(n => n !== p.name);
+      renderPolicyDrawer();
+    };
+    list.appendChild(row);
+  });
+  const dd = $("pd-defaults");
+  dd.innerHTML = "";
+  pdState.policies.forEach(p => {
+    if (!p.name.trim()) return;
+    const lab = document.createElement("label");
+    lab.className = "pd-def-row";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = pdState.defaults.includes(p.name);
+    cb.onchange = () => {
+      if (cb.checked) { if (!pdState.defaults.includes(p.name)) pdState.defaults.push(p.name); }
+      else pdState.defaults = pdState.defaults.filter(n => n !== p.name);
+    };
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(" " + p.name + "（" + (PTYPE_ZH[p.ptype] || p.ptype) + "）"));
+    dd.appendChild(lab);
+  });
+}
+
+$("btn-policy").onclick = openPolicyDrawer;
+$("pd-add").onclick = () => { pdState.policies.push({ name: "", ptype: "auth", scheme: "", pdp: "" }); renderPolicyDrawer(); };
+$("pd-close").onclick = () => $("policy-drawer").classList.remove("open");
+$("pd-save").onclick = async () => {
+  const pol = {};
+  for (const p of pdState.policies) {
+    const n = p.name.trim();
+    if (!n) continue;
+    pol[n] = { ptype: p.ptype };
+    if (p.scheme.trim()) pol[n].scheme = p.scheme.trim();
+    if (p.pdp) pol[n].pdp = p.pdp;
+  }
+  state.graph.policies = pol;
+  const valid = new Set(Object.keys(pol));
+  state.graph.defaults.edges = pdState.defaults.filter(n => valid.has(n));
+  $("policy-drawer").classList.remove("open");
+  await sync();
+};
 
 /* ---------- 仿真 ---------- */
 let sim = null;
@@ -740,6 +877,7 @@ $("btn-sim").onclick = async () => {
 /* ---------- boot ---------- */
 (async function boot() {
   renderPalette();
+  renderLegend();
   const r = await api("GET", "/api/arch");
   state.yaml = r.yaml;
   state.graph = r.graph;
