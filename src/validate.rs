@@ -113,6 +113,48 @@ pub fn validate(a: &Arch) -> (bool, usize, usize, Vec<VErr>) {
             );
         }
 
+        // same-gate-iron
+        {
+            let (fk, tk) = (from.0.kind.as_str(), to.0.kind.as_str());
+            let app_side = if fk == "app" {
+                Some((from.0.id.as_str(), to.0.id.as_str(), tk))
+            } else if tk == "app" {
+                Some((to.0.id.as_str(), from.0.id.as_str(), fk))
+            } else {
+                None
+            };
+            if let Some((app_id, other_id, other_kind)) = app_side {
+                if other_kind == "gateway" {
+                    cx.ok();
+                } else {
+                    cx.bad(
+                        &e.id,
+                        "same-gate-iron",
+                        format!(
+                            "应用 {} 直连了 {}（同门铁律：应用只能从网关进）",
+                            app_id, other_id
+                        ),
+                    );
+                }
+            }
+        }
+
+        // core-only-data
+        if e.etype == "data-store" {
+            if to.0.kind == "datastore" {
+                cx.ok();
+            } else {
+                cx.bad(
+                    &e.id,
+                    "core-only-data",
+                    format!(
+                        "数据边 {} 落到了非数据层组件 {}（单一持久层：数据只住 Core）",
+                        e.id, to.0.id
+                    ),
+                );
+            }
+        }
+
         // event-consumer
         if e.etype == "event" {
             let topic_ok = e

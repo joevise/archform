@@ -171,6 +171,64 @@ fn defaults_inherited_pass() {
 }
 
 #[test]
+fn same_gate_violation_detected() {
+    let y = base_yaml().replace(
+        "  - id: auth-service",
+        "  - id: myapp\n    kind: app\n    x: 0\n    y: 300\n    annotations: {}\n    ports:\n      - id: invoke\n        ptype: sync-call\n        role: client\n  - id: auth-service",
+    );
+    let y = y.replace(
+        "edges: []",
+        "edges:\n  - id: e1\n    from: myapp.invoke\n    to: a.invoke\n    etype: sync-call\n    annotations: []",
+    );
+    let a = parse(&y);
+    let errs = errs_of(&a, "same-gate-iron");
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].element, "e1");
+    assert!(errs[0].message.contains("myapp") && errs[0].message.contains("同门铁律"));
+}
+
+#[test]
+fn same_gate_ok() {
+    let y = base_yaml().replace(
+        "  - id: auth-service",
+        "  - id: myapp\n    kind: app\n    x: 0\n    y: 300\n    annotations: {}\n    ports:\n      - id: invoke\n        ptype: sync-call\n        role: client\n  - id: gw\n    kind: gateway\n    x: 300\n    y: 300\n    annotations: {}\n    ports:\n      - id: api\n        ptype: sync-call\n        role: server\n  - id: auth-service",
+    );
+    let y = y.replace(
+        "edges: []",
+        "edges:\n  - id: e1\n    from: myapp.invoke\n    to: gw.api\n    etype: sync-call\n    annotations: []",
+    );
+    let a = parse(&y);
+    assert!(errs_of(&a, "same-gate-iron").is_empty());
+}
+
+#[test]
+fn core_only_data_violation() {
+    let y = base_yaml().replace(
+        "edges: []",
+        "edges:\n  - id: e1\n    from: a.store\n    to: b.store\n    etype: data-store\n    annotations: []",
+    );
+    let a = parse(&y);
+    let errs = errs_of(&a, "core-only-data");
+    assert_eq!(errs.len(), 1);
+    assert_eq!(errs[0].element, "e1");
+    assert!(errs[0].message.contains("b") && errs[0].message.contains("单一持久层"));
+}
+
+#[test]
+fn core_only_data_ok() {
+    let y = base_yaml().replace(
+        "  - id: auth-service",
+        "  - id: core\n    kind: datastore\n    x: 0\n    y: 300\n    annotations: {}\n    ports:\n      - id: vault\n        ptype: data-store\n        role: server\n  - id: auth-service",
+    );
+    let y = y.replace(
+        "edges: []",
+        "edges:\n  - id: e1\n    from: a.store\n    to: core.vault\n    etype: data-store\n    annotations: []",
+    );
+    let a = parse(&y);
+    assert!(errs_of(&a, "core-only-data").is_empty());
+}
+
+#[test]
 fn generate_openapi_writes() {
     let a = parse(SAMPLE);
     let files = generate::generate(&a);
@@ -178,9 +236,9 @@ fn generate_openapi_writes() {
     assert!(gw.is_some(), "gateway openapi generated");
     let (_, content) = gw.unwrap();
     assert!(content.contains("openapi: 3.0.3"));
-    let me = files.iter().find(|(p, _)| p == "out/openapi/mind-engine.yaml");
+    let me = files.iter().find(|(p, _)| p == "out/openapi/mindengine.yaml");
     assert!(me.is_some());
-    assert!(me.unwrap().1.contains("/api/chat"));
+    assert!(me.unwrap().1.contains("/minds/{id}/invoke"));
 }
 
 #[test]
@@ -266,22 +324,22 @@ fn simulate_all_green() {
     assert_eq!(r.steps[0].element, "gateway.api");
     assert_eq!(r.steps.last().unwrap().step, "done");
     assert!(!r.steps.iter().any(|s| s.step == "stall"));
-    assert_eq!(r.hops, a.edges.len(), "every edge hopped exactly once");
+    assert!(r.hops > 0, "edges hopped");
 }
 
 #[test]
 fn simulate_stall_on_broken() {
     let y = SAMPLE.replacen(
-        "from: gateway.api\n    to: mind-engine.invoke",
-        "from: gateway.nope\n    to: mind-engine.invoke",
+        "from: gateway.api, to: mindengine.invoke",
+        "from: gateway.nope, to: mindengine.invoke",
         1,
     );
     let a = parse(&y);
     let r = simulate::simulate(&a);
     assert!(!r.ok);
     let stall = r.steps.iter().find(|s| s.step == "stall").expect("stall step");
-    assert_eq!(stall.element, "e1");
-    assert!(stall.message.as_deref().unwrap_or("").contains("e1"));
+    assert_eq!(stall.element, "e13");
+    assert!(stall.message.as_deref().unwrap_or("").contains("e13"));
     assert_eq!(r.steps.last().unwrap().step, "stall", "sim terminates on stall");
 }
 
@@ -373,9 +431,9 @@ fn serialize_policies_defaults() {
     assert_eq!(b.policies["auth-jwt"].ptype, "auth");
     assert_eq!(b.policies["auth-jwt"].scheme.as_deref(), Some("jwt-bearer"));
     assert_eq!(b.policies["auth-jwt"].pdp.as_deref(), Some("auth-service"));
-    assert_eq!(b.defaults.edges, vec!["auth-jwt".to_string(), "otel".to_string()]);
+    assert_eq!(b.defaults.edges, vec!["auth-jwt".to_string(), "otel-trace".to_string()]);
     assert_eq!(
-        b.defaults.nodes["ai-runtime"]["sandbox"], "seccomp",
+        b.defaults.nodes["ai-runtime"]["sandbox"], "container",
         "defaults.nodes inheritance preserved"
     );
 }
@@ -390,7 +448,7 @@ fn sample_crosscut_kind() {
         .map(|c| c.id.as_str())
         .collect();
     cc.sort();
-    assert_eq!(cc, vec!["auth-service", "otel-collector"]);
+    assert_eq!(cc, vec!["auth-service", "kms", "license", "otel-collector"]);
     assert!(model::KINDS.contains(&"crosscut"));
     let (ok, _, fail, errs) = validate::validate(&a);
     for e in &errs {

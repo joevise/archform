@@ -4,174 +4,207 @@ policies:
     ptype: auth
     scheme: jwt-bearer
     pdp: auth-service
-  otel:
+  otel-trace:
     ptype: trace
     scheme: opentelemetry
     pdp: otel-collector
+  aes-gcm:
+    ptype: crypto
+    scheme: aes-256-gcm
+    pdp: kms
+
 defaults:
-  edges: [auth-jwt, otel]
+  edges:
+    - auth-jwt
+    - otel-trace
   nodes:
     ai-runtime:
-      sandbox: seccomp
+      sandbox: container
+
 components:
+  # ===== 应用生态层 =====
+  - id: app-first
+    name: 一方App·控制台
+    kind: app
+    x: 40
+    y: 70
+    annotations: {}
+    ports:
+      - { id: backend, ptype: sync-call, role: client }
+      - { id: ai, ptype: model-io }
+      - { id: ui, ptype: stream, role: client }
+  - id: app-customer
+    name: 客户自建App
+    kind: app
+    x: 360
+    y: 70
+    annotations: {}
+    ports:
+      - { id: backend, ptype: sync-call, role: client }
+      - { id: ui, ptype: stream, role: client }
+  - id: app-legacy
+    name: 存量LLM应用
+    kind: app
+    x: 680
+    y: 70
+    annotations: {}
+    ports:
+      - { id: backend, ptype: sync-call, role: client }
+      - { id: ai, ptype: model-io }
+  - id: app-third
+    name: 第三方App
+    kind: app
+    x: 1000
+    y: 70
+    annotations: {}
+    ports:
+      - { id: backend, ptype: sync-call, role: client }
+
+  # ===== 接入层 =====
   - id: gateway
     name: API网关·五扇门
     kind: gateway
-    x: 60
+    x: 480
     y: 250
     annotations: {}
     ports:
-      - id: api
-        ptype: sync-call
-        role: server
-      - id: events
-        ptype: event
-      - id: chat
-        ptype: stream
-        role: server
-  - id: mind-engine
+      - { id: api, ptype: sync-call, role: server }
+      - { id: modelio, ptype: model-io, role: server }
+      - { id: mcp, ptype: tool-call, role: server }
+      - { id: webhooks, ptype: event, role: server }
+      - { id: events, ptype: event }
+      - { id: chat, ptype: stream, role: server }
+
+  # ===== 平台服务层 =====
+  - id: collector
+    name: 采集服务
+    kind: service
+    x: 20
+    y: 430
+    annotations: {}
+    ports:
+      - { id: invoke, ptype: sync-call, role: server }
+      - { id: emitted, ptype: event }
+      - { id: store, ptype: data-store }
+  - id: bus
+    name: 事件总线
+    kind: bus
+    x: 270
+    y: 430
+    annotations: {}
+    ports:
+      - { id: topic, ptype: event, role: server }
+  - id: trainer
+    name: 训练服务
+    kind: service
+    x: 520
+    y: 430
+    annotations: {}
+    ports:
+      - { id: invoke, ptype: sync-call, role: server }
+      - { id: listen, ptype: event }
+      - { id: emitted, ptype: event }
+      - { id: store, ptype: data-store }
+  - id: mindvault
+    name: 知识服务 MindVault
+    kind: service
+    x: 770
+    y: 430
+    annotations: {}
+    ports:
+      - { id: invoke, ptype: sync-call, role: server }
+      - { id: store, ptype: data-store }
+  - id: mindengine
     name: AI运行时 MindEngine
     kind: ai-runtime
-    x: 480
+    x: 1020
     y: 430
     annotations:
       sandbox: seccomp
     ports:
-      - id: invoke
-        ptype: sync-call
-        role: server
-      - id: llm
-        ptype: model-io
-      - id: tools
-        ptype: tool-call
-      - id: session
-        ptype: data-store
-  - id: mind-vault
-    name: 知识库 MindVault
+      - { id: invoke, ptype: sync-call, role: server }
+      - { id: llm, ptype: model-io, role: server }
+      - { id: tools, ptype: tool-call, role: server }
+      - { id: chat, ptype: stream, role: server }
+      - { id: session, ptype: data-store }
+      - { id: authz, ptype: sync-call, role: client }
+
+  # ===== 数据层 =====
+  - id: mindcore
+    name: 数据地基 MindCore
     kind: datastore
-    x: 480
+    x: 680
     y: 610
     annotations: {}
     ports:
-      - id: vault
-        ptype: data-store
-        role: server
-      - id: admin
-        ptype: sync-call
-        role: server
-  - id: collector
-    name: 采集服务
-    kind: service
-    x: 900
-    y: 430
-    annotations: {}
-    ports:
-      - id: invoke
-        ptype: sync-call
-        role: server
-      - id: emitted
-        ptype: event
-      - id: store
-        ptype: data-store
-  - id: bus
-    name: 事件总线
-    kind: bus
-    x: 60
-    y: 430
-    annotations: {}
-    ports:
-      - id: topic
-        ptype: event
-        role: server
+      - { id: vault, ptype: data-store, role: server }
+      - { id: admin, ptype: sync-call, role: server }
+
+  # ===== 横切带 =====
   - id: auth-service
     name: 鉴权决策 PDP
     kind: crosscut
-    x: 1280
-    y: 250
+    x: 1320
+    y: 100
     annotations: {}
     ports:
-      - id: invoke
-        ptype: sync-call
-        role: server
-      - id: emitted
-        ptype: event
-      - id: store
-        ptype: data-store
+      - { id: invoke, ptype: sync-call, role: server }
+  - id: kms
+    name: 密钥服务 KMS
+    kind: crosscut
+    x: 1320
+    y: 300
+    annotations: {}
+    ports:
+      - { id: invoke, ptype: sync-call, role: server }
   - id: otel-collector
     name: 观测收集器
     kind: crosscut
-    x: 1280
-    y: 550
+    x: 1320
+    y: 480
     annotations: {}
     ports:
-      - id: invoke
-        ptype: sync-call
-        role: server
-      - id: emitted
-        ptype: event
-      - id: store
-        ptype: data-store
+      - { id: invoke, ptype: sync-call, role: server }
+      - { id: ingest, ptype: event, role: server }
+  - id: license
+    name: 许可服务
+    kind: crosscut
+    x: 1320
+    y: 640
+    annotations: {}
+    ports:
+      - { id: invoke, ptype: sync-call, role: server }
+
 edges:
-  - id: e1
-    from: gateway.api
-    to: mind-engine.invoke
-    etype: sync-call
-    spec: "openapi:paths=/api/chat,/api/complete"
-    annotations: []
-  - id: e2
-    from: mind-engine.session
-    to: mind-vault.vault
-    etype: data-store
-    annotations: []
-  - id: e3
-    from: mind-engine.invoke
-    to: collector.invoke
-    etype: sync-call
-    spec: "openapi:paths=/collect"
-    annotations: []
-  - id: e4
-    from: collector.emitted
-    to: bus.topic
-    etype: event
-    spec: "asyncapi:topic=events"
-    annotations: []
-  - id: e5
-    from: bus.topic
-    to: gateway.events
-    etype: event
-    spec: "asyncapi:topic=events"
-    annotations: []
-  - id: e6
-    from: gateway.api
-    to: auth-service.invoke
-    etype: sync-call
-    spec: "openapi:paths=/auth/verify"
-    annotations: []
-  - id: e7
-    from: gateway.api
-    to: otel-collector.invoke
-    etype: sync-call
-    spec: "openapi:paths=/otel/traces"
-    annotations: []
-  - id: e8
-    from: collector.store
-    to: mind-vault.vault
-    etype: data-store
-    annotations: []
-  - id: e9
-    from: auth-service.store
-    to: mind-vault.vault
-    etype: data-store
-    annotations: []
-  - id: e10
-    from: otel-collector.emitted
-    to: bus.topic
-    etype: event
-    spec: "asyncapi:topic=traces"
-    annotations: []
-  - id: e11
-    from: mind-engine.invoke
-    to: mind-vault.admin
-    etype: sync-call
-    spec: "openapi:paths=/admin/query"
-    annotations: []
+  # ---- 应用 → 网关（同门铁律：应用只能从网关进）----
+  - { id: e01, from: app-first.backend, to: gateway.api, etype: sync-call, spec: "openapi:paths=/api/*" }
+  - { id: e02, from: app-customer.backend, to: gateway.api, etype: sync-call, spec: "openapi:paths=/api/*" }
+  - { id: e03, from: app-third.backend, to: gateway.api, etype: sync-call, spec: "openapi:paths=/api/*" }
+  - { id: e04, from: app-legacy.ai, to: gateway.modelio, etype: model-io, spec: "mind-as-model@v1" }
+  - { id: e05, from: app-first.ui, to: gateway.chat, etype: stream, spec: "sse:frames" }
+  - { id: e06, from: app-customer.ui, to: gateway.chat, etype: stream, spec: "sse:frames" }
+  # ---- 网关五扇门 → 平台服务 ----
+  - { id: e10, from: gateway.api, to: collector.invoke, etype: sync-call, spec: "openapi:paths=/collect/*" }
+  - { id: e11, from: gateway.api, to: trainer.invoke, etype: sync-call, spec: "openapi:paths=/train/*" }
+  - { id: e12, from: gateway.api, to: mindvault.invoke, etype: sync-call, spec: "openapi:paths=/vault/*" }
+  - { id: e13, from: gateway.api, to: mindengine.invoke, etype: sync-call, spec: "openapi:paths=/minds/{id}/invoke" }
+  - { id: e14, from: gateway.mcp, to: mindengine.tools, etype: tool-call, spec: "mcp:tools" }
+  - { id: e15, from: gateway.modelio, to: mindengine.llm, etype: model-io, spec: "mind-as-model@v1" }
+  - { id: e16, from: gateway.chat, to: mindengine.chat, etype: stream, spec: "sse:frames" }
+  - { id: e17, from: gateway.events, to: bus.topic, etype: event, spec: "asyncapi:topic=gw-events" }
+  # ---- PEP-1：网关 → PDP / License ----
+  - { id: e18, from: gateway.api, to: auth-service.invoke, etype: sync-call, spec: "openapi:paths=/authz/check" }
+  - { id: e19, from: gateway.api, to: license.invoke, etype: sync-call, spec: "openapi:paths=/license/verify" }
+  # ---- 数据落 Core（加密）----
+  - { id: e20, from: collector.store, to: mindcore.vault, etype: data-store, spec: "schema:vault@2", annotations: [aes-gcm] }
+  - { id: e21, from: trainer.store, to: mindcore.vault, etype: data-store, spec: "schema:vault@2", annotations: [aes-gcm] }
+  - { id: e22, from: mindvault.store, to: mindcore.vault, etype: data-store, spec: "schema:vault@2", annotations: [aes-gcm] }
+  - { id: e23, from: mindengine.session, to: mindcore.vault, etype: data-store, spec: "schema:vault@2", annotations: [aes-gcm] }
+  - { id: e24, from: mindcore.admin, to: kms.invoke, etype: sync-call, spec: "openapi:paths=/kms/envelope" }
+  # ---- 事件流 ----
+  - { id: e25, from: collector.emitted, to: bus.topic, etype: event, spec: "asyncapi:topic=collected" }
+  - { id: e26, from: trainer.emitted, to: bus.topic, etype: event, spec: "asyncapi:topic=trained" }
+  - { id: e27, from: bus.topic, to: trainer.listen, etype: event, spec: "asyncapi:topic=collected" }
+  - { id: e28, from: bus.topic, to: otel-collector.ingest, etype: event, spec: "asyncapi:topic=*" }
+  # ---- PEP-2：服务内部零信任 ----
+  - { id: e29, from: mindengine.authz, to: auth-service.invoke, etype: sync-call, spec: "openapi:paths=/authz/check" }
